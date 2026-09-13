@@ -1,9 +1,11 @@
 import { loadUsersFile } from "./usersFile.js";
+import { loadSites } from "./sites.js";
 import { Auth } from "./auth.js";
 
 export interface ServeOptions {
   port?: number;
   usersFile: string;
+  sitesDir?: string;
 }
 
 async function readJson(req: Request): Promise<unknown> {
@@ -38,6 +40,7 @@ function failure(error: unknown): Response {
 /** Boot the API. Returns the Bun server handle (call .stop() in tests). */
 export async function serve(options: ServeOptions) {
   const auth = new Auth(await loadUsersFile(options.usersFile));
+  const sites = loadSites(options.sitesDir ?? "data/seed/sites");
   const server = Bun.serve({
     port: options.port ?? 4000,
     async fetch(req) {
@@ -74,6 +77,20 @@ export async function serve(options: ServeOptions) {
         }
         if (req.method === "GET" && url.pathname === "/api/me") {
           return json(auth.me(bearer(req)));
+        }
+        if (req.method === "GET" && url.pathname === "/api/sites") {
+          return json({ sites: auth.me(bearer(req)).sites });
+        }
+        {
+          const mapMatch = /^\/api\/sites\/([^/]+)\/map$/.exec(url.pathname);
+          if (req.method === "GET" && mapMatch) {
+            const me = auth.me(bearer(req));
+            const name = decodeURIComponent(mapMatch[1]!);
+            const site = sites.get(name);
+            if (!site) return json({ error: "unknown site" }, 404);
+            if (!me.sites.includes(name)) return json({ error: "forbidden site" }, 403);
+            return json(site);
+          }
         }
         if (req.method === "POST" && url.pathname === "/api/logout") {
           auth.logout(bearer(req));

@@ -1,0 +1,20 @@
+{
+  "name": "coalescent",
+  "nodes": [
+    { "id": "west", "x": 0, "y": 4, "radius": 0.3 },
+    { "id": "northwest", "x": 0, "y": 10, "radius": 0.3 },
+    { "id": "northeast", "x": 12, "y": 10, "radius": 0.3 },
+    { "id": "east", "x": 12, "y": 4, "radius": 0.3 },
+    { "id": "southeast", "x": 12, "y": 0, "radius": 0.3 },
+    { "id": "southwest", "x": 0, "y": 0, "radius": 0.3 }
+  ],
+  "links": [
+    { "source": "west", "destination": "northwest", "bidirectional": true },
+    { "source": "northwest", "destination": "northeast", "bidirectional": true },
+    { "source": "northeast", "destination": "east", "bidirectional": true },
+    { "source": "east", "destination": "southeast", "bidirectional": true },
+    { "source": "southeast", "destination": "southwest", "bidirectional": true },
+    { "source": "southwest", "destination": "west", "bidirectional": true },
+    { "source": "west", "destination": "east", "bidirectional": true }
+  ]
+}
