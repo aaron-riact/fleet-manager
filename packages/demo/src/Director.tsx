@@ -46,6 +46,7 @@ export default function Director() {
   const [parked, setParked] = useState<Record<string, string>>({});
   const [log, setLog] = useState<string[]>([]);
   const [events, setEvents] = useState<string[]>([]);
+  const [showAllEvents, setShowAllEvents] = useState(false);
   const prevLocks = useRef<LockSnapshot | undefined>(undefined);
   const [spawnSerial, setSpawnSerial] = useState("demo-3");
   const [status, setStatus] = useState("booting…");
@@ -270,9 +271,20 @@ export default function Director() {
             ))}
           </section>
           <section style={panel}>
-            <h2 style={{ marginTop: 0 }}>Lock events</h2>
+            <h2 style={{ marginTop: 0 }}>
+              Lock events{" "}
+              <label style={{ fontSize: "0.7rem", color: "#8b949e", fontWeight: "normal" }}>
+                <input
+                  type="checkbox"
+                  checked={showAllEvents}
+                  onChange={(e) => setShowAllEvents(e.target.checked)}
+                />{" "}
+                all
+              </label>
+            </h2>
             <pre style={{ maxHeight: 200, overflow: "auto", fontSize: "0.75rem", color: "#8b949e" }}>
-              {events.join("\n") || "no lock activity yet"}
+              {(showAllEvents ? events : events.filter((l) => /waits on|stops waiting/.test(l))).join("\n") ||
+                "no lock activity yet"}
             </pre>
           </section>
           <section style={panel}>
