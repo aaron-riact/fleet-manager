@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { login } from "./authClient";
 import { clearSession, loadSession, saveSession } from "./session";
+import { fetchMap, fetchSites } from "./api";
+import { FleetMap } from "./FleetMap";
 import type { LoginSession } from "./authClient";
+import type { Site } from "@fleet-manager/core";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
 
@@ -81,6 +84,26 @@ function LoginForm({ onLogin }: { onLogin: (s: LoginSession) => void }) {
 }
 
 function Shell({ session, onLogout }: { session: LoginSession; onLogout: () => void }) {
+  const [site, setSite] = useState<Site | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sites = await fetchSites(API_BASE, session.token);
+        if (sites.length === 0) throw new Error("no sites assigned to this user");
+        const map = await fetchMap(API_BASE, session.token, sites[0]!);
+        if (!cancelled) setSite(map);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "failed to load map");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session.token]);
+
   return (
     <div style={{ width: "100%", maxWidth: 960, padding: "1rem" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -95,9 +118,15 @@ function Shell({ session, onLogout }: { session: LoginSession; onLogout: () => v
           </button>
         </span>
       </header>
-      <main style={{ ...card, marginTop: "2rem" }}>
-        <h2 style={{ marginTop: 0 }}>Map &amp; robots</h2>
-        <p style={{ color: "#8b949e" }}>Coming next: live fleet map with nodes, edges, and locks.</p>
+      <main style={{ marginTop: "1rem" }}>
+        {error && <p style={{ color: "#f85149" }}>{error}</p>}
+        {!error && !site && <p style={{ color: "#8b949e" }}>Loading map…</p>}
+        {site && (
+          <>
+            <h2 style={{ fontSize: "1rem", color: "#8b949e" }}>{site.name}</h2>
+            <FleetMap site={site} />
+          </>
+        )}
       </main>
     </div>
   );

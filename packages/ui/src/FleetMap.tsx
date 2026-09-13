@@ -1,0 +1,42 @@
+import React, { useMemo } from "react";
+import type { Site } from "@fleet-manager/core";
+import { boundsOf, indexNodes, toSvg, viewBoxFor } from "./map";
+
+/** Graph overlay: edges under nodes, positions in meters. */
+export function FleetMap({ site }: { site: Site }) {
+  const bounds = useMemo(() => boundsOf(site), [site]);
+  const byId = useMemo(() => indexNodes(site.nodes), [site]);
+
+  return (
+    <svg
+      viewBox={viewBoxFor(bounds)}
+      role="img"
+      aria-label={`Map of ${site.name}`}
+      style={{ width: "100%", height: "auto", background: "#0b0e14", borderRadius: 12 }}
+    >
+      <g id="graph-edges" stroke="#3b4657" strokeWidth={0.08}>
+        {site.links.map((link, i) => {
+          const from = byId.get(link.source);
+          const to = byId.get(link.destination);
+          if (!from || !to) return null;
+          const a = toSvg(from.x, from.y, bounds);
+          const b = toSvg(to.x, to.y, bounds);
+          return <line key={`${link.source}-${link.destination}-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+        })}
+      </g>
+      <g id="graph-nodes">
+        {site.nodes.map((node) => {
+          const p = toSvg(node.x, node.y, bounds);
+          return (
+            <g key={node.id} id={`node-${node.id}`}>
+              <circle cx={p.x} cy={p.y} r={node.radius ?? 0.25} fill="#0b0e14" stroke="#8b949e" strokeWidth={0.06} />
+              <text x={p.x} y={p.y - (node.radius ?? 0.25) - 0.15} textAnchor="middle" fontSize={0.5} fill="#8b949e">
+                {node.id}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    </svg>
+  );
+}
