@@ -130,6 +130,7 @@ export default function Director() {
     const svc = svcRef.current;
     const robot = fleet?.robots.find((r) => r.id.serialNumber === serialNumber);
     if (!fleet || !svc || !robot) return;
+    setRobot(serialNumber, "starting…");
     setStatus(`order running: ${serialNumber}…`);
     try {
       // Tour starts at the nearest node, but the deviation check needs the
@@ -154,14 +155,17 @@ export default function Director() {
       const last = tour[tour.length - 1]!;
       const spot = freeSpot(site.parking ?? [], parked, last);
       if (spot) {
+        setRobot(serialNumber, `parking → ${spot.id}…`);
         setStatus(`parking: ${serialNumber} → ${spot.id}…`);
         await svc.park(robot.id, spot, { from: last });
         setParked((prev) => ({ ...prev, [spot.id]: serialNumber }));
       }
+      setRobot(serialNumber, "done");
       setStatus(`order done: ${serialNumber}`);
     } catch (e) {
       console.error("driveLoop failed", e);
       const detail = e instanceof Error ? e.message || String(e) : JSON.stringify(e);
+      setRobot(serialNumber, `failed: ${detail.slice(0, 120)}`);
       setStatus(`order failed: ${detail}`);
     }
   }
@@ -195,6 +199,9 @@ export default function Director() {
                 <button onClick={() => void driveLoop(s)}>drive loop</button>
                 <button onClick={() => void drop(s)}>remove</button>
               </div>
+              {robotStatus[s] && (
+                <div style={{ fontSize: "0.75rem", color: "#8b949e", margin: "-0.1rem 0 0.25rem 0" }}>{robotStatus[s]}</div>
+              )}
             ))}
             <div style={{ marginTop: "0.5rem" }}>
               <input value={spawnSerial} onChange={(e) => setSpawnSerial(e.target.value)} placeholder="serial" />
