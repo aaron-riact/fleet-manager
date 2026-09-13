@@ -1,0 +1,17 @@
+{
+  "name": "@fleet-manager/transport-memory",
+  "version": "0.1.0",
+  "description": "Dependency-free in-memory Bus: browser demo and tests",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'transport-memory: no build step (source-only ESM)'",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fleet-manager/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
