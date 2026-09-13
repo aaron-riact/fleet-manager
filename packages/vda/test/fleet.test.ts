@@ -178,8 +178,7 @@ describe("Fleet dispatch with locks", () => {
     }
   }, 90_000);
 
-  test("orders feed tracks release state and removal", async () => {
-    const site = {
+  test("orders feed tracks release state and removal", async () => {    const site = {
       name: "short",
       nodes: [
         { id: "x", x: 0, y: 0 },
@@ -238,6 +237,41 @@ describe("Fleet dispatch with locks", () => {
       await fleet.park(r, { id: "p1", x: 10, y: 10 }, { from: { x: 5, y: 0 } });
       expect(locks.snapshot().nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
       expect(locks.snapshot().edgeLocks.every((e) => !e.held)).toBe(true);
+    } finally {
+      await c.stop();
+      await master.stop();
+    }
+  }, 90_000);
+
+  test("second dispatch while busy is refused clearly", async () => {
+    const site = {
+      name: "short",
+      nodes: [
+        { id: "a", x: 0, y: 0 },
+        { id: "b", x: 8, y: 0 },
+      ],
+      links: [{ source: "a", destination: "b", bidirectional: true }],
+    };
+    const locks = buildLocks(site);
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+    const r = { manufacturer: "RobotCompany", serialNumber: "busy-1" };
+    const c = await startAgv(hub, r, 0, 0);
+    const fleet = new Fleet(master, locks);
+    try {
+      const first = fleet.dispatch(r, [
+        { nodeId: "a", x: 0, y: 0 },
+        { nodeId: "b", x: 8, y: 0 },
+      ]);
+      await expect(
+        fleet.dispatch(r, [
+          { nodeId: "b", x: 8, y: 0 },
+          { nodeId: "a", x: 0, y: 0 },
+        ]),
+      ).rejects.toThrow(/busy with order/);
+      await first;
     } finally {
       await c.stop();
       await master.stop();

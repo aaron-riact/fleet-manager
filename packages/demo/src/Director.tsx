@@ -44,6 +44,10 @@ export default function Director() {
   const [log, setLog] = useState<string[]>([]);
   const [spawnSerial, setSpawnSerial] = useState("demo-3");
   const [status, setStatus] = useState("booting…");
+  const [robotStatus, setRobotStatus] = useState<Record<string, string>>({});
+
+  const setRobot = (serialNumber: string, s: string) =>
+    setRobotStatus((prev) => ({ ...prev, [serialNumber]: s }));
 
   useEffect(() => {
     let cancelled = false;
@@ -191,17 +195,21 @@ export default function Director() {
           <section style={panel}>
             <h2 style={{ marginTop: 0 }}>Robots</h2>
             {serials.map((s) => (
-              <div key={s} style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.25rem 0" }}>
-                <code>{s}</code>
-                <span style={{ color: "#8b949e", fontSize: "0.8rem" }}>
-                  {poses[s] ? `${poses[s]!.x.toFixed(1)}, ${poses[s]!.y.toFixed(1)}` : "…"}
-                </span>
-                <button onClick={() => void driveLoop(s)}>drive loop</button>
-                <button onClick={() => void drop(s)}>remove</button>
-              </div>
-              {robotStatus[s] && (
-                <div style={{ fontSize: "0.75rem", color: "#8b949e", margin: "-0.1rem 0 0.25rem 0" }}>{robotStatus[s]}</div>
-              )}
+              <React.Fragment key={s}>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.25rem 0" }}>
+                  <code>{s}</code>
+                  <span style={{ color: "#8b949e", fontSize: "0.8rem" }}>
+                    {poses[s] ? `${poses[s]!.x.toFixed(1)}, ${poses[s]!.y.toFixed(1)}` : "…"}
+                  </span>
+                  <button onClick={() => void driveLoop(s)}>drive loop</button>
+                  <button onClick={() => void drop(s)}>remove</button>
+                </div>
+                {robotStatus[s] && (
+                  <div style={{ fontSize: "0.75rem", color: "#8b949e", margin: "-0.1rem 0 0.25rem 0" }}>
+                    {robotStatus[s]}
+                  </div>
+                )}
+              </React.Fragment>
             ))}
             <div style={{ marginTop: "0.5rem" }}>
               <input value={spawnSerial} onChange={(e) => setSpawnSerial(e.target.value)} placeholder="serial" />

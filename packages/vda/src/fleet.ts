@@ -127,6 +127,11 @@ export class Fleet {
     opts: { from?: { x: number; y: number } } = {},
   ): Promise<void> {
     if (waypoints.length === 0) throw new Error("dispatch needs at least one waypoint");
+    const serial = agvId.serialNumber ?? "unknown";
+    const existing = this.activeOrders.get(serial);
+    if (existing) {
+      throw new Error(`robot ${serial} is busy with order ${existing.orderId} — wait or cancel first`);
+    }
     const first = waypoints[0]!;
     // Off-graph starts (parking spots): prepend the current pose as a
     // pseudo-node. It resolves to always-free dummy locks, so the approach
