@@ -1,23 +1,57 @@
 import { describe, expect, test } from "bun:test";
-import { Graferse } from "graferse";
+import { buildLocks } from "../src/locks.js";
+import type { NextNode } from "graferse";
 
-// Smoke test: the published graferse library behaves like fm-vda5050's
-// local graph.ts (ported expectations from fm-vda5050/src/graph.test.ts).
-describe("graferse locks", () => {
-  test("creates and tracks locks", () => {
-    const creator = new Graferse();
-    expect(creator.locks).toEqual([]);
-    const lock = creator.makeLock();
-    expect(typeof lock).toBe("object");
-    expect(creator.locks).toEqual([lock]);
+const corridor = {
+  name: "corridor",
+  nodes: [
+    { id: "a", x: 0, y: 0 },
+    { id: "b", x: 5, y: 0 },
+  ],
+  links: [{ source: "a", destination: "b", bidirectional: true }],
+};
+
+describe("fleet locks", () => {
+  test("holder owns current+next, waiter blocks with empty grant", () => {
+    const locks = buildLocks(corridor);
+    const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
+    r1.arrivedAt(0);
+    expect(
+      locks.snapshot().nodeLocks.filter((n) => n.owners.includes("r1")).map((n) => n.id).sort(),
+    ).toEqual(["a", "b"]);
+
+    let granted: NextNode<string>[] = [{ node: "?", index: -1 }];
+    locks.lockerFor("r2").makePathLocker(["b", "a"], (next) => {
+      granted = next;
+    }).arrivedAt(0);
+    expect(granted).toEqual([]);
+    expect(locks.snapshot().nodeLocks.find((n) => n.id === "b")?.waiters).toContain("r2");
   });
 
-  test("exclusive lock with waiter notification", () => {
-    const creator = new Graferse();
-    const lock = creator.makeLock();
-    expect(lock.requestLock("agent1", "node-a")).toBe(true);
-    expect(lock.requestLock("agent2", "node-a")).toBe(false);
-    expect(lock.unlock("agent1")).toEqual(new Set(["agent2"]));
-    expect(lock.requestLock("agent2", "node-a")).toBe(true);
+  test("release wakes the waiter into the corridor", () => {
+    const locks = buildLocks(corridor);
+    const seen: string[][] = [];
+    const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
+    r1.arrivedAt(0);
+    const l2 = locks.lockerFor("r2").makePathLocker(["b", "a"], (next) => {
+      seen.push(next.map((n) => n.node));
+    });
+    l2.arrivedAt(0);
+    expect(seen).toEqual([[]]);
+
+    r1.clearAllPathLocks();
+    const owners = locks.snapshot().nodeLocks.find((n) => n.id === "b")?.owners ?? [];
+    expect(owners).toContain("r2");
+    expect(seen.flat()).toContain("b");
+  });
+
+  test("edge held flag follows bidirectional traffic", () => {
+    const locks = buildLocks(corridor);
+    const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
+    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", held: false }]);
+    r1.arrivedAt(0);
+    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", held: true }]);
+    r1.clearAllPathLocks();
+    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", held: false }]);
   });
 });
