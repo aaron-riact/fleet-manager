@@ -4,6 +4,12 @@
   "description": "CLI: users add, demo runner, fm-vda5050 migration (phase 3)",
   "type": "module",
   "main": "./src/index.ts",
+  "bin": {
+    "fleet": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fleet-manager/core": "workspace:*"
+  },
   "scripts": {
     "build": "echo 'cli: stub (phase 3)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"

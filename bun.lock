@@ -12,6 +12,12 @@
     "packages/cli": {
       "name": "@fleet-manager/cli",
       "version": "0.1.0",
+      "bin": {
+        "fleet": "./src/index.ts",
+      },
+      "dependencies": {
+        "@fleet-manager/core": "workspace:*",
+      },
     },
     "packages/core": {
       "name": "@fleet-manager/core",
