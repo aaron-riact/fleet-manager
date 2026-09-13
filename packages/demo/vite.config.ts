@@ -5,6 +5,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: { port: 3001 },
+  define: {
+    __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace("T", " ")),
+  },
   // graferse resolves to a local file: override — never prebundle it,
   // or the dev server keeps serving a stale copy after library rebuilds.
   // debug (logging-only, CJS browser field Vite cannot interop) is stubbed.

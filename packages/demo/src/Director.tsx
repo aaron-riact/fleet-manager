@@ -12,6 +12,8 @@ import siteData from "../../../data/seed/sites/coalescent.json";
 import { buildLocks } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 
+declare const __BUILD_ID__: string;
+
 const site = siteData as Site;
 const MANUFACTURER = "RobotCompany";
 
@@ -187,7 +189,9 @@ export default function Director() {
     <div style={page}>
       <header style={{ display: "flex", gap: "1rem", alignItems: "baseline" }}>
         <h1 style={{ margin: 0 }}>Fleet Demo</h1>
-        <span style={{ color: "#8b949e" }}>serverless · {status}</span>
+        <span style={{ color: "#8b949e" }}>
+          serverless · {status} · build {__BUILD_ID__}
+        </span>
       </header>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1rem", marginTop: "1rem" }}>
         <FleetMap
