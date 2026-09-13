@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchRobots } from "./robots";
-import { freeEntry, freeSpot } from "./parking";
+import { freeSpot } from "./parking";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
 import { Fleet } from "@fleet-manager/vda";
@@ -148,13 +148,12 @@ export default function Director() {
         (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) ? pose : undefined) ??
         homeSpot ??
         site.nodes[0]!;
-      // Enter at the nearest FREE node so tours spread around the loop
-      // instead of queueing behind whoever holds the nearest one.
-      const entry = freeEntry(site.nodes, locksModel.snapshot(), home) ?? home;
+      // Tour starts at the nearest node — sharing entries is what makes
+      // followers queue and trail the leader through the same nodes.
       const tour = loopFrom(
         site.nodes.map((n) => ({ nodeId: n.id, x: n.x, y: n.y })),
-        entry.x,
-        entry.y,
+        home.x,
+        home.y,
       );
       await svc.dispatch(
         robot.id,
