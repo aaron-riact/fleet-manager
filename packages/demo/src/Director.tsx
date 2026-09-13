@@ -1,12 +1,14 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
-import { driveThrough, loopFrom } from "./scenario";
+import { loopFrom } from "./scenario";
 import { watchRobots } from "./robots";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
+import { Fleet } from "@fleet-manager/vda";
 import { FleetMap } from "@fleet-manager/ui";
 import siteData from "../../../data/seed/sites/coalescent.json";
-import type { Site } from "@fleet-manager/core";
+import { buildLocks } from "@fleet-manager/core";
+import type { LockSnapshot, Site } from "@fleet-manager/core";
 
 const site = siteData as Site;
 const MANUFACTURER = "RobotCompany";
@@ -29,8 +31,11 @@ const panel: React.CSSProperties = {
 
 export default function Director() {
   const fleetRef = useRef<DemoFleet | null>(null);
+  const svcRef = useRef<Fleet | null>(null);
+  const locksModel = useMemo(() => buildLocks(site as Site), []);
   const [serials, setSerials] = useState<string[]>([]);
   const [poses, setPoses] = useState<Record<string, RobotPose>>({});
+  const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
   const [log, setLog] = useState<string[]>([]);
   const [spawnSerial, setSpawnSerial] = useState("demo-3");
   const [status, setStatus] = useState("booting…");
@@ -49,6 +54,9 @@ export default function Director() {
         return;
       }
       fleetRef.current = fleet;
+      svcRef.current = new Fleet(fleet.master, locksModel, (snap) => {
+        if (!cancelled) setLocks(snap);
+      });
       setSerials(fleet.robots.map((r) => r.id.serialNumber));
       await watchRobots(fleet.master, MANUFACTURER, (pose) => {
         if (cancelled) return;
@@ -89,8 +97,9 @@ export default function Director() {
 
   async function driveLoop(serialNumber: string) {
     const fleet = fleetRef.current;
+    const svc = svcRef.current;
     const robot = fleet?.robots.find((r) => r.id.serialNumber === serialNumber);
-    if (!fleet || !robot) return;
+    if (!fleet || !svc || !robot) return;
     setStatus(`order running: ${serialNumber}…`);
     try {
       const pose = poses[serialNumber];
@@ -103,7 +112,10 @@ export default function Director() {
         from.x,
         from.y,
       );
-      await driveThrough(fleet.master, robot.id, tour);
+      await svc.dispatch(
+        robot.id,
+        tour.map((w) => ({ nodeId: w.nodeId, x: w.x, y: w.y })),
+      );
       setStatus(`order done: ${serialNumber}`);
     } catch (e) {
       console.error("driveLoop failed", e);
@@ -121,6 +133,7 @@ export default function Director() {
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1rem", marginTop: "1rem" }}>
         <FleetMap
           site={site}
+          locks={locks}
           robots={serials.map((s) => ({
             serialNumber: s,
             x: poses[s]?.x ?? Number.NaN,
