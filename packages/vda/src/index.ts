@@ -1,2 +1,2 @@
-// @fleet-manager/vda — stub (phase 2: master + AGV controllers on any Bus).
-export {};
+export { FakeMqttClient, MemoryHub, attachMemoryTransport } from "./fakeMqtt.js";
+export type { MessageForwarder } from "./fakeMqtt.js";

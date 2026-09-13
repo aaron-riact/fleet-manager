@@ -4,6 +4,10 @@
   "description": "vda-5050-lib wiring: master + AGV controllers per transport (phase 2)",
   "type": "module",
   "main": "./src/index.ts",
+  "dependencies": {
+    "@fleet-manager/core": "workspace:*",
+    "vda-5050-lib": "^1.7.2"
+  },
   "scripts": {
     "build": "echo 'vda: stub (phase 2)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
