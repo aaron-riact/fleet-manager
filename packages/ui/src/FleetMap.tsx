@@ -8,17 +8,26 @@ export interface RobotDot {
   y: number;
 }
 
+export interface OrderWait {
+  serialNumber: string;
+  /** First unreleased node in the robot's own order. */
+  nodeId: string;
+}
+
 /** Graph overlay: edges under nodes, positions in meters. */
 export function FleetMap({
   site,
   robots = [],
   locks,
   parking = [],
+  waits = [],
 }: {
   site: Site;
   robots?: RobotDot[];
   locks?: LockSnapshot;
   parking?: ParkingSpot[];
+  /** Robots waiting, each with the node from its own order it waits on. */
+  waits?: OrderWait[];
 }) {
   const bounds = useMemo(() => boundsOf(site), [site]);
   const byId = useMemo(() => indexNodes(site.nodes), [site]);
@@ -163,28 +172,26 @@ export function FleetMap({
         })}
       </g>
       <g id="waits">
-        {(locks?.nodeLocks ?? []).flatMap((node) =>
-          (node.waiters ?? []).flatMap((serial) => {
-            const robot = robots.find((r) => r.serialNumber === serial);
-            const target = byId.get(node.id);
-            if (!robot || !target || !Number.isFinite(robot.x) || !Number.isFinite(robot.y)) return [];
-            const a = toSvg(robot.x, robot.y, bounds);
-            const b = toSvg(target.x, target.y, bounds);
-            return [
-              <line
-                key={`wait-${serial}-${node.id}`}
-                x1={a.x.toFixed(3)}
-                y1={a.y.toFixed(3)}
-                x2={b.x.toFixed(3)}
-                y2={b.y.toFixed(3)}
-                stroke="#e3b341"
-                strokeWidth={0.05}
-                strokeDasharray="0.2 0.15"
-                opacity={0.9}
-              />,
-            ];
-          }),
-        )}
+        {waits.flatMap((wait) => {
+          const robot = robots.find((r) => r.serialNumber === wait.serialNumber);
+          const target = byId.get(wait.nodeId);
+          if (!robot || !target || !Number.isFinite(robot.x) || !Number.isFinite(robot.y)) return [];
+          const a = toSvg(robot.x, robot.y, bounds);
+          const b = toSvg(target.x, target.y, bounds);
+          return [
+            <line
+              key={`wait-${wait.serialNumber}-${wait.nodeId}`}
+              x1={a.x.toFixed(3)}
+              y1={a.y.toFixed(3)}
+              x2={b.x.toFixed(3)}
+              y2={b.y.toFixed(3)}
+              stroke="#e3b341"
+              strokeWidth={0.05}
+              strokeDasharray="0.2 0.15"
+              opacity={0.9}
+            />,
+          ];
+        })}
       </g>
     </svg>
   );

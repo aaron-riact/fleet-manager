@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchRobots } from "./robots";
-import { freeSpot } from "./parking";
+import { freeEntry, freeSpot } from "./parking";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
 import { Fleet } from "@fleet-manager/vda";
@@ -148,10 +148,13 @@ export default function Director() {
         (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) ? pose : undefined) ??
         homeSpot ??
         site.nodes[0]!;
+      // Enter at the nearest FREE node so tours spread around the loop
+      // instead of queueing behind whoever holds the nearest one.
+      const entry = freeEntry(site.nodes, locksModel.snapshot(), home) ?? home;
       const tour = loopFrom(
         site.nodes.map((n) => ({ nodeId: n.id, x: n.x, y: n.y })),
-        home.x,
-        home.y,
+        entry.x,
+        entry.y,
       );
       await svc.dispatch(
         robot.id,
@@ -192,6 +195,10 @@ export default function Director() {
           site={site}
           locks={locks}
           parking={site.parking ?? []}
+          waits={orders.flatMap((o) => {
+            const next = o.nodes.find((n) => !n.released);
+            return next ? [{ serialNumber: o.serial, nodeId: next.nodeId }] : [];
+          })}
           robots={serials.map((s) => ({
             serialNumber: s,
             x: poses[s]?.x ?? Number.NaN,

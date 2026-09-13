@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { freeSpot } from "../src/parking.js";
+import { freeEntry, freeSpot } from "../src/parking.js";
 
 const spots = [
   { id: "p1", x: 0, y: 0 },
@@ -16,5 +16,25 @@ describe("freeSpot", () => {
     expect(freeSpot(spots, new Map([["p1", "a"], ["p2", "b"]]))).toBeUndefined();
     expect(freeSpot(spots, {})?.id).toBe("p1");
     expect(freeSpot([], new Map())?.id).toBeUndefined();
+  });
+});
+
+describe("freeEntry", () => {
+  const nodes = [
+    { id: "a", x: 0, y: 0 },
+    { id: "b", x: 10, y: 0 },
+  ];
+  const snap = (owners: Record<string, string[]>) => ({
+    nodeLocks: nodes.map((n) => ({ id: n.id, owners: owners[n.id] ?? [], waiters: [] as string[] })),
+    edgeLocks: [],
+  });
+
+  test("nearest unowned node wins", () => {
+    expect(freeEntry(nodes, snap({}), { x: 9, y: 1 })?.id).toBe("b");
+    expect(freeEntry(nodes, snap({ b: ["r1"] }), { x: 9, y: 1 })?.id).toBe("a");
+  });
+
+  test("undefined when everything is owned", () => {
+    expect(freeEntry(nodes, snap({ a: ["r1"], b: ["r2"] }), { x: 0, y: 0 })).toBeUndefined();
   });
 });
