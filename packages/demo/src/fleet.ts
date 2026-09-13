@@ -11,6 +11,10 @@ export interface DemoFleet {
   hub: MemoryHub;
   master: MasterController;
   robots: DemoRobot[];
+  /** Spawn an extra virtual robot at runtime. */
+  spawn(spec: { manufacturer: string; serialNumber: string }): Promise<DemoRobot>;
+  /** Remove a robot (stops its controller). Returns false if unknown. */
+  drop(serialNumber: string): Promise<boolean>;
   stop(): Promise<void>;
 }
 
@@ -38,8 +42,12 @@ export async function bootFleet(input: {
   await master.start();
 
   const robots: DemoRobot[] = [];
-  for (const { manufacturer, serialNumber } of specs) {
-    const id: AgvId = { manufacturer, serialNumber };
+
+  async function spawn(spec: { manufacturer: string; serialNumber: string }): Promise<DemoRobot> {
+    if (robots.some((r) => r.id.serialNumber === spec.serialNumber)) {
+      throw new Error(`robot already exists: "${spec.serialNumber}"`);
+    }
+    const id: AgvId = { manufacturer: spec.manufacturer, serialNumber: spec.serialNumber };
     const controller = new AgvController(
       id,
       clientOptions(interfaceName),
@@ -48,13 +56,25 @@ export async function bootFleet(input: {
     );
     attachMemoryTransport(controller, hub);
     await controller.start();
-    robots.push({ id, controller });
+    const robot = { id, controller };
+    robots.push(robot);
+    return robot;
   }
+
+  for (const spec of specs) await spawn(spec);
 
   return {
     hub,
     master,
     robots,
+    spawn,
+    async drop(serialNumber: string): Promise<boolean> {
+      const index = robots.findIndex((r) => r.id.serialNumber === serialNumber);
+      if (index < 0) return false;
+      const [robot] = robots.splice(index, 1);
+      await robot!.controller.stop();
+      return true;
+    },
     async stop() {
       for (const { controller } of robots) await controller.stop();
       await master.stop();
