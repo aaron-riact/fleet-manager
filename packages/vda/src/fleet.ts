@@ -1,6 +1,6 @@
 import { MasterController } from "vda-5050-lib";
 import type { AgvId, Headerless, Order } from "vda-5050-lib";
-import type { FleetLocks } from "@fleet-manager/core";
+import type { FleetLocks, LockSnapshot } from "@fleet-manager/core";
 
 export interface FleetWaypoint {
   nodeId: string;
@@ -73,7 +73,16 @@ export class Fleet {
   constructor(
     private readonly master: MasterController,
     private readonly locks: FleetLocks,
+    private readonly onLocks?: (snapshot: LockSnapshot) => void,
   ) {}
+
+  private emit(): void {
+    try {
+      this.onLocks?.(this.locks.snapshot());
+    } catch {
+      /* listener errors must not break dispatch */
+    }
+  }
 
   async dispatch(agvId: AgvId, waypoints: FleetWaypoint[]): Promise<void> {
     const serial = agvId.serialNumber ?? "unknown";
@@ -96,11 +105,15 @@ export class Fleet {
       const callbacks = {
         onNodeTraversed: (node: { nodeId: string }) => {
           const index = nodeIds.indexOf(node.nodeId);
-          if (index >= 0) granting.arrivedAt(index);
+          if (index >= 0) {
+            granting.arrivedAt(index);
+            this.emit();
+          }
         },
         onOrderProcessed: (error: unknown, _cancelled: boolean, active: boolean) => {
           if (active) return;
           granting.clearAllPathLocks();
+          this.emit();
           if (error) reject(error);
           else resolve();
         },
@@ -108,11 +121,15 @@ export class Fleet {
 
       const granting = locker.makePathLocker(nodeIds, (nextNodes) => {
         releaseAllowed(nextNodes.map((n) => n.index));
+        this.emit();
       });
 
       this.master
         .assignOrder(agvId, order, callbacks as never)
-        .then(() => granting.arrivedAt(0))
+        .then(() => {
+          granting.arrivedAt(0);
+          this.emit();
+        })
         .catch((error: unknown) => {
           try {
             granting.clearAllPathLocks();

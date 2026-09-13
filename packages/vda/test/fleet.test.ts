@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AgvController, MasterController, VirtualAgvAdapter } from "vda-5050-lib";
 import type { AgvId, ClientOptions } from "vda-5050-lib";
 import { buildLocks } from "@fleet-manager/core";
+import type { LockSnapshot } from "@fleet-manager/core";
 import { Fleet } from "../src/fleet.js";
 import { MemoryHub, attachMemoryTransport } from "../src/fakeMqtt.js";
 
@@ -36,6 +37,38 @@ async function pollFor(label: string, cond: () => boolean, timeoutMs: number): P
 }
 
 describe("Fleet dispatch with locks", () => {
+  test("lock snapshots stream from dispatch events", async () => {
+    const site = {
+      name: "short",
+      nodes: [
+        { id: "x", x: 0, y: 0 },
+        { id: "y", x: 3, y: 0 },
+      ],
+      links: [{ source: "x", destination: "y", bidirectional: true }],
+    };
+    const locks = buildLocks(site);
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+    const r = { manufacturer: "RobotCompany", serialNumber: "snap-1" };
+    const c = await startAgv(hub, r, 0, 0);
+    const seen: LockSnapshot[] = [];
+    const fleet = new Fleet(master, locks, (snap) => void seen.push(snap));
+    try {
+      await fleet.dispatch(r, [
+        { nodeId: "x", x: 0, y: 0 },
+        { nodeId: "y", x: 3, y: 0 },
+      ]);
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.some((s) => s.nodeLocks.find((n) => n.id === "x")?.owners.includes("snap-1"))).toBe(true);
+      const last = seen[seen.length - 1]!;
+      expect(last.nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+    } finally {
+      await c.stop();
+      await master.stop();
+    }
+  }, 60_000);
   test("second robot waits for the shared node, then both finish", async () => {
     const site = {
       name: "corridor",
