@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Topic } from "vda-5050-lib";
 import { bootFleet } from "../src/fleet.js";
+import { watchRobots } from "../src/robots.js";
 
 describe("runtime robot management", () => {
   test("spawned robot appears on the bus; dropped robot leaves", async () => {
@@ -31,6 +32,25 @@ describe("runtime robot management", () => {
       expect(await fleet.drop("extra-1")).toBe(true);
       expect(await fleet.drop("extra-1")).toBe(false);
       expect(fleet.robots.map((r) => r.id.serialNumber)).toEqual(["extra-2"]);
+    } finally {
+      await fleet.stop();
+    }
+  }, 20_000);
+
+  test("spawned robot starts at its given pose", async () => {
+    const fleet = await bootFleet({ robots: [] });
+    try {
+      await fleet.spawn({ manufacturer: "RobotCompany", serialNumber: "placed-1", x: 5, y: 6 });
+      const poses = new Map<string, { x: number; y: number }>();
+      await watchRobots(fleet.master, "RobotCompany", (pose) => {
+        poses.set(pose.serialNumber, pose);
+      });
+      const deadline = Date.now() + 10_000;
+      while (!poses.has("placed-1") && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(poses.get("placed-1")?.x).toBeCloseTo(5, 0);
+      expect(poses.get("placed-1")?.y).toBeCloseTo(6, 0);
     } finally {
       await fleet.stop();
     }

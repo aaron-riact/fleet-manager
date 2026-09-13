@@ -7,12 +7,20 @@ export interface DemoRobot {
   controller: AgvController;
 }
 
+export interface SpawnSpec {
+  manufacturer: string;
+  serialNumber: string;
+  /** Start pose; defaults to the origin. Put robots on the loop they will drive. */
+  x?: number;
+  y?: number;
+}
+
 export interface DemoFleet {
   hub: MemoryHub;
   master: MasterController;
   robots: DemoRobot[];
   /** Spawn an extra virtual robot at runtime. */
-  spawn(spec: { manufacturer: string; serialNumber: string }): Promise<DemoRobot>;
+  spawn(spec: SpawnSpec): Promise<DemoRobot>;
   /** Remove a robot (stops its controller). Returns false if unknown. */
   drop(serialNumber: string): Promise<boolean>;
   stop(): Promise<void>;
@@ -32,7 +40,7 @@ const clientOptions = (interfaceName: string): ClientOptions => ({
  */
 export async function bootFleet(input: {
   interfaceName?: string;
-  robots?: Array<{ manufacturer: string; serialNumber: string }>;
+  robots?: SpawnSpec[];
 } = {}): Promise<DemoFleet> {
   const interfaceName = input.interfaceName ?? "demo";
   const specs = input.robots ?? [{ manufacturer: "RobotCompany", serialNumber: "demo-1" }];
@@ -43,7 +51,7 @@ export async function bootFleet(input: {
 
   const robots: DemoRobot[] = [];
 
-  async function spawn(spec: { manufacturer: string; serialNumber: string }): Promise<DemoRobot> {
+  async function spawn(spec: SpawnSpec): Promise<DemoRobot> {
     if (robots.some((r) => r.id.serialNumber === spec.serialNumber)) {
       throw new Error(`robot already exists: "${spec.serialNumber}"`);
     }
@@ -52,7 +60,10 @@ export async function bootFleet(input: {
       id,
       clientOptions(interfaceName),
       { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
-      { vehicleSpeed: 2 },
+      {
+        vehicleSpeed: 2,
+        initialPosition: { mapId: "local", x: spec.x ?? 0, y: spec.y ?? 0, theta: 0, lastNodeId: "0" },
+      },
     );
     attachMemoryTransport(controller, hub);
     await controller.start();

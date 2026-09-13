@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
-import { driveThrough } from "./scenario";
+import { driveThrough, loopFrom } from "./scenario";
 import { watchRobots } from "./robots";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
@@ -40,8 +40,8 @@ export default function Director() {
     (async () => {
       const fleet = await bootFleet({
         robots: [
-          { manufacturer: MANUFACTURER, serialNumber: "demo-1" },
-          { manufacturer: MANUFACTURER, serialNumber: "demo-2" },
+          { manufacturer: MANUFACTURER, serialNumber: "demo-1", x: site.nodes[0]!.x, y: site.nodes[0]!.y },
+          { manufacturer: MANUFACTURER, serialNumber: "demo-2", x: site.nodes[3]!.x, y: site.nodes[3]!.y },
         ],
       });
       if (cancelled) {
@@ -70,7 +70,8 @@ export default function Director() {
   async function spawn() {
     const fleet = fleetRef.current;
     if (!fleet || !spawnSerial.trim()) return;
-    await fleet.spawn({ manufacturer: MANUFACTURER, serialNumber: spawnSerial.trim() });
+    const pad = site.nodes[fleet.robots.length % site.nodes.length]!;
+    await fleet.spawn({ manufacturer: MANUFACTURER, serialNumber: spawnSerial.trim(), x: pad.x, y: pad.y });
     setSerials(fleet.robots.map((r) => r.id.serialNumber));
   }
 
@@ -92,11 +93,17 @@ export default function Director() {
     if (!fleet || !robot) return;
     setStatus(`order running: ${serialNumber}…`);
     try {
-      await driveThrough(
-        fleet.master,
-        robot.id,
+      const pose = poses[serialNumber];
+      const from =
+        pose && Number.isFinite(pose.x) && Number.isFinite(pose.y)
+          ? { x: pose.x, y: pose.y }
+          : { x: site.nodes[0]!.x, y: site.nodes[0]!.y };
+      const tour = loopFrom(
         site.nodes.map((n) => ({ nodeId: n.id, x: n.x, y: n.y })),
+        from.x,
+        from.y,
       );
+      await driveThrough(fleet.master, robot.id, tour);
       setStatus(`order done: ${serialNumber}`);
     } catch (e) {
       console.error("driveLoop failed", e);

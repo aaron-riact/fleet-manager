@@ -10,6 +10,26 @@ export interface Waypoint {
 let orderCounter = 1;
 
 /**
+ * Rotate waypoints so the tour starts at the node nearest (x, y) and
+ * closes the loop back at it. Orders must start within the AGV's
+ * deviation range, so call with the robot's current pose.
+ */
+export function loopFrom(nodes: Waypoint[], x: number, y: number): Waypoint[] {
+  if (nodes.length === 0) throw new Error("loopFrom needs at least one node");
+  let best = 0;
+  let bestDist = Infinity;
+  nodes.forEach((n, i) => {
+    const d = (n.x - x) ** 2 + (n.y - y) ** 2;
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  });
+  const rotated = [...nodes.slice(best), ...nodes.slice(0, best)];
+  return [...rotated, rotated[0]!];
+}
+
+/**
  * Drive a virtual AGV through waypoints (demo scenarios).
  * Positions are free-navigation coordinates, mapId 'local' must match
  * the adapter's initial position (see bootFleet defaults).
