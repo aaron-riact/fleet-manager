@@ -99,7 +99,9 @@ export default function Director() {
       );
       setStatus(`order done: ${serialNumber}`);
     } catch (e) {
-      setStatus(`order failed: ${(e as Error).message}`);
+      console.error("driveLoop failed", e);
+      const detail = e instanceof Error ? e.message || String(e) : JSON.stringify(e);
+      setStatus(`order failed: ${detail}`);
     }
   }
 
