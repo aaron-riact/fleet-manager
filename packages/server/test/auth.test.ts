@@ -26,6 +26,22 @@ describe("Auth", () => {
     expect(auth.me(result.token)).toEqual({ username: "alice@cmr", sites: ["coalescent"] });
   });
 
+  test("finish returns the server proof for mutual auth", async () => {
+    const { users } = await setup();
+    const auth = new Auth(users);
+    const { salt, serverEphemeral } = await auth.start("alice@cmr");
+    const privateKey = await srpClient.derivePrivateKey(salt, "alice@cmr", "s3cret");
+    const ephemeral = srpClient.generateEphemeral();
+    const clientSession = await srpClient.deriveSession(
+      ephemeral.secret, serverEphemeral, salt, "alice@cmr", privateKey,
+    );
+    const result = await auth.finish({
+      serverEphemeral, clientEphemeral: ephemeral.public, proof: clientSession.proof,
+    });
+    expect(typeof result.proof).toBe("string");
+    await srpClient.verifySession(ephemeral.public, clientSession, result.proof);
+  });
+
   test("unknown user and wrong password fail", async () => {
     const { users } = await setup();
     const auth = new Auth(users);

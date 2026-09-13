@@ -58,12 +58,12 @@ export class Auth {
     return { salt: user.salt, serverEphemeral: ephemeral.public };
   }
 
-  /** Step 2: client sends proof, gets a session token. */
+  /** Step 2: client sends proof, gets a session token + server proof (mutual auth). */
   async finish(input: {
     serverEphemeral: string;
     clientEphemeral: string;
     proof: string;
-  }): Promise<{ token: string; username: string; sites: string[] }> {
+  }): Promise<{ token: string; username: string; sites: string[]; proof: string }> {
     const challenge = this.pending.get(input.serverEphemeral);
     this.pending.delete(input.serverEphemeral);
     if (!challenge || this.now() - challenge.createdAt > this.pendingTtlMs) {
@@ -71,7 +71,7 @@ export class Auth {
     }
     const user = this.users.find((u) => u.username === challenge.username);
     if (!user) throw new Error(`unknown user: "${challenge.username}"`);
-    await srpServer.deriveSession(
+    const session = await srpServer.deriveSession(
       challenge.secret,
       input.clientEphemeral,
       user.salt,
@@ -79,14 +79,9 @@ export class Auth {
       user.verifier,
       input.proof,
     );
-    const session: Session = {
-      token: this.newToken(),
-      username: user.username,
-      sites: user.sites,
-      createdAt: this.now(),
-    };
-    this.sessions.set(session.token, session);
-    return { token: session.token, username: session.username, sites: session.sites };
+    const token = this.newToken();
+    this.sessions.set(token, { token, username: user.username, sites: user.sites, createdAt: this.now() });
+    return { token, username: user.username, sites: user.sites, proof: session.proof };
   }
 
   /** Validate a Bearer token (GET /api/me, request auth). */
