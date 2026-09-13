@@ -4,6 +4,9 @@
   "description": "Bun.serve API: REST + tRPC, SSE streams (phase 3)",
   "type": "module",
   "main": "./src/index.ts",
+  "dependencies": {
+    "@fleet-manager/core": "workspace:*"
+  },
   "scripts": {
     "build": "echo 'server: stub (phase 3)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"

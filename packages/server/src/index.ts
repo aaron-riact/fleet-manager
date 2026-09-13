@@ -1,2 +1,3 @@
-// @fleet-manager/server — stub (phase 3: REST + tRPC + SSE on Bun.serve).
-export {};
+// @fleet-manager/server — REST + SSE API on Bun.serve (auth done, wiring next).
+export { Auth } from "./auth.js";
+export type { Session } from "./auth.js";

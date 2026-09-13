@@ -38,6 +38,9 @@
     "packages/server": {
       "name": "@fleet-manager/server",
       "version": "0.1.0",
+      "dependencies": {
+        "@fleet-manager/core": "workspace:*",
+      },
     },
     "packages/transport-memory": {
       "name": "@fleet-manager/transport-memory",
