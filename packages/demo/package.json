@@ -5,11 +5,22 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "build": "echo 'demo: stub (phase 5)'",
+    "dev": "vite",
+    "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@fleet-manager/core": "workspace:*",
+    "@fleet-manager/ui": "workspace:*",
     "@fleet-manager/vda": "workspace:*",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
     "vda-5050-lib": "^1.7.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.1",
+    "@types/react-dom": "^19.1.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "vite": "^7.1.7"
   }
 }
