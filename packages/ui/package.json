@@ -1,11 +1,25 @@
 {
   "name": "@fleet-manager/ui",
   "version": "0.1.0",
-  "description": "Vite React ops UI: SRP login, map SVG with nodes/edges/locks (phase 4)",
+  "description": "Vite React ops UI: SRP login, map SVG with nodes/edges/locks",
   "type": "module",
-  "main": "./src/index.ts",
   "scripts": {
-    "build": "echo 'ui: stub (phase 4)'",
+    "dev": "vite",
+    "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fleet-manager/core": "workspace:*",
+    "js-srp6a": "^1.0.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@fleet-manager/server": "workspace:*",
+    "@types/react": "^19.1.1",
+    "@types/react-dom": "^19.1.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.1.7"
   }
 }
