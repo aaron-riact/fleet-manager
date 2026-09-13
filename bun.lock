@@ -54,6 +54,7 @@
       "name": "@fleet-manager/vda",
       "version": "0.1.0",
       "dependencies": {
+        "@fleet-manager/core": "workspace:*",
         "vda-5050-lib": "^1.7.2",
       },
     },
