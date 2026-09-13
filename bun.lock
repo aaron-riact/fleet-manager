@@ -34,6 +34,10 @@
     "packages/demo": {
       "name": "@fleet-manager/demo",
       "version": "0.1.0",
+      "dependencies": {
+        "@fleet-manager/vda": "workspace:*",
+        "vda-5050-lib": "^1.7.2",
+      },
     },
     "packages/server": {
       "name": "@fleet-manager/server",
