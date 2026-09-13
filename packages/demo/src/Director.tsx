@@ -132,23 +132,24 @@ export default function Director() {
     if (!fleet || !svc || !robot) return;
     setStatus(`order running: ${serialNumber}…`);
     try {
-      // Parked robots anchor the tour at their spot's entry node;
-      // otherwise start from the nearest node to the live pose.
+      // Tour starts at the nearest node, but the deviation check needs the
+      // robot's real pose (usually a parking spot), not the tour start.
       const spotId = Object.entries(parked).find(([, who]) => who === serialNumber)?.[0];
-      const anchor = (site.parking ?? []).find((s) => s.id === spotId);
-      const entry = anchor?.entry ? site.nodes.find((n) => n.id === anchor.entry) : undefined;
+      const homeSpot = (site.parking ?? []).find((s) => s.id === spotId);
       const pose = poses[serialNumber];
-      const from =
-        entry ?? (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) ? pose : undefined) ?? site.nodes[0]!;
+      const home =
+        (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) ? pose : undefined) ??
+        homeSpot ??
+        site.nodes[0]!;
       const tour = loopFrom(
         site.nodes.map((n) => ({ nodeId: n.id, x: n.x, y: n.y })),
-        from.x,
-        from.y,
+        home.x,
+        home.y,
       );
       await svc.dispatch(
         robot.id,
         tour.map((w) => ({ nodeId: w.nodeId, x: w.x, y: w.y })),
-        { from },
+        { from: home },
       );
       const last = tour[tour.length - 1]!;
       const spot = freeSpot(site.parking ?? [], parked, last);
