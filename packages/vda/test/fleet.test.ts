@@ -136,4 +136,68 @@ describe("Fleet dispatch with locks", () => {
       await master.stop();
     }
   }, 120_000);
+
+  test("far start drives an approach leg first, then the locked tour", async () => {
+    const site = {
+      name: "short",
+      nodes: [
+        { id: "a", x: 0, y: 0 },
+        { id: "b", x: 5, y: 0 },
+      ],
+      links: [{ source: "a", destination: "b", bidirectional: true }],
+    };
+    const locks = buildLocks(site);
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+    const r = { manufacturer: "RobotCompany", serialNumber: "far-1" };
+    const c = await startAgv(hub, r, 10, 10);
+    const fleet = new Fleet(master, locks);
+    try {
+      await fleet.dispatch(
+        r,
+        [
+          { nodeId: "a", x: 0, y: 0 },
+          { nodeId: "b", x: 5, y: 0 },
+        ],
+        { from: { x: 10, y: 10 } },
+      );
+      expect(locks.snapshot().nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+    } finally {
+      await c.stop();
+      await master.stop();
+    }
+  }, 90_000);
+
+  test("park drives off-graph and holds no locks", async () => {
+    const site = {
+      name: "short",
+      nodes: [
+        { id: "a", x: 0, y: 0 },
+        { id: "b", x: 5, y: 0 },
+      ],
+      links: [{ source: "a", destination: "b", bidirectional: true }],
+    };
+    const locks = buildLocks(site);
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+    const r = { manufacturer: "RobotCompany", serialNumber: "park-1" };
+    const c = await startAgv(hub, r, 0, 0);
+    const fleet = new Fleet(master, locks);
+    try {
+      await fleet.dispatch(r, [
+        { nodeId: "a", x: 0, y: 0 },
+        { nodeId: "b", x: 5, y: 0 },
+      ]);
+      await fleet.park(r, { id: "p1", x: 10, y: 10 }, { from: { x: 5, y: 0 } });
+      expect(locks.snapshot().nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+      expect(locks.snapshot().edgeLocks.every((e) => !e.held)).toBe(true);
+    } finally {
+      await c.stop();
+      await master.stop();
+    }
+  }, 90_000);
 });

@@ -45,7 +45,17 @@ describe("fleet locks", () => {
     expect(seen.flat()).toContain("b");
   });
 
-  test("edge held flag follows bidirectional traffic", () => {
+  test("off-graph pseudo-nodes resolve to free locks, excluded from snapshots", () => {
+    const locks = buildLocks(corridor);
+    const r = locks.lockerFor("r1").makePathLocker(["__start-1", "a", "b"], () => {});
+    r.arrivedAt(0);
+    const snap = locks.snapshot();
+    expect(snap.nodeLocks.map((n) => n.id).sort()).toEqual(["a", "b"]);
+    expect(snap.nodeLocks.find((n) => n.id === "a")?.owners).toEqual(["r1"]);
+    r.clearAllPathLocks();
+  });
+
+  test("edge owners follow bidirectional traffic", () => {
     const locks = buildLocks(corridor);
     const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
     expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", owners: [], held: false }]);

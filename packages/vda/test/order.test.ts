@@ -24,7 +24,7 @@ describe("order building", () => {
 
   test("stitch releases granted nodes and covered edges", () => {
     const { order } = buildIncrementalOrder("o1", waypoints);
-    const update = stitchRelease(order, [0, 2], 1) as unknown as {
+    const update = stitchRelease(order, [0, 2], 1, 0) as unknown as {
       orderUpdateId: number;
       nodes: Array<{ sequenceId: number; released: boolean }>;
       edges: Array<{ sequenceId: number; released: boolean }>;
@@ -34,6 +34,17 @@ describe("order building", () => {
     expect(update.edges.map((e) => e.released)).toEqual([true, false]);
     // base order untouched
     expect(order.nodes[1]?.released).toBe(false);
+  });
+
+  test("stitch prunes traversed nodes, keeping the base", () => {
+    const { order } = buildIncrementalOrder("o1", waypoints);
+    const update = stitchRelease(order, [0, 2, 4], 2, 2) as unknown as {
+      nodes: Array<{ sequenceId: number; released: boolean }>;
+      edges: Array<{ sequenceId: number }>;
+    };
+    expect(update.nodes.map((n) => n.sequenceId)).toEqual([2, 4]);
+    expect(update.nodes[0]).toMatchObject({ released: true, actions: [] });
+    expect(update.edges.map((e) => e.sequenceId)).toEqual([3]);
   });
 
   test("empty waypoints rejected", () => {

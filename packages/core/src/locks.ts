@@ -38,12 +38,25 @@ export interface FleetLocks {
 const linkKey = (a: string, b: string) => `${a}→${b}`;
 
 /**
+ * Pseudo-node prefix for off-graph positions (robot's current pose,
+ * parking spots in transit). Resolves to shared always-free locks so
+ * approach legs can start outside the graph. Excluded from snapshots.
+ */
+export const OFF_GRAPH_PREFIX = "__";
+
+/**
  * Traffic locks for a site, backed by graferse.
  * One Lock per node, one LinkLock per link (shared both directions).
  * Agents lock current+next as they arrive; snapshot() feeds the overlay/API.
  */
 export function buildLocks(site: Site): FleetLocks {
   const creator = new Graferse<string>((x) => x);
+  // Per-pseudo-id always-free locks for off-graph positions (each dispatch
+  // mints unique __start-* ids, so sharing is impossible by construction).
+  // Kept out of the node/link maps so snapshots only show real resources.
+  // Note: a oneway link lock is always FREE by design.
+  const dummyNodeLocks = new Map<string, ReturnType<Graferse<string>["makeLock"]>>();
+  const dummyLinkLocks = new Map<string, ReturnType<Graferse<string>["makeLinkLock"]>>();
   const nodeLocks = new Map<string, ReturnType<Graferse<string>["makeLock"]>>();
   for (const node of site.nodes) nodeLocks.set(node.id, creator.makeLock(node.id));
 
@@ -57,11 +70,28 @@ export function buildLocks(site: Site): FleetLocks {
   }
 
   const getLock = (id: string) => {
+    if (id.startsWith(OFF_GRAPH_PREFIX)) {
+      let lock = dummyNodeLocks.get(id);
+      if (!lock) {
+        lock = creator.makeLock(id);
+        dummyNodeLocks.set(id, lock);
+      }
+      return lock;
+    }
     const lock = nodeLocks.get(id);
     if (!lock) throw new Error(`no lock for node "${id}"`);
     return lock;
   };
   const getLockForLink = (from: string, to: string) => {
+    if (from.startsWith(OFF_GRAPH_PREFIX) || to.startsWith(OFF_GRAPH_PREFIX)) {
+      const key = linkKey(from, to);
+      let lock = dummyLinkLocks.get(key);
+      if (!lock) {
+        lock = creator.makeLinkLock(from, to, false);
+        dummyLinkLocks.set(key, lock);
+      }
+      return lock;
+    }
     const lock = linkLocks.get(linkKey(from, to));
     if (!lock) throw new Error(`no link lock from "${from}" to "${to}"`);
     return lock;
