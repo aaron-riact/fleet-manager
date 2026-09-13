@@ -13,6 +13,8 @@ export interface EdgeLockState {
   toId: string;
   owners: string[];
   held: boolean;
+  /** Per travel direction: which agents move that way (bidirectional edges). */
+  legs: Array<{ from: string; owners: string[] }>;
 }
 
 export interface LockSnapshot {
@@ -119,10 +121,19 @@ export function buildLocks(site: Site): FleetLocks {
       })),
       edgeLocks: [...linkIndex].map(([, { fromId, toId }]) => {
         const details = linkLocks.get(linkKey(fromId, toId))!.getDetails();
-        const owners = [
-          ...new Set([...(details.lockers.get(fromId) ?? []), ...(details.lockers.get(toId) ?? [])]),
-        ].sort();
-        return { fromId, toId, owners, held: owners.length > 0 };
+        const fromOwners = [...(details.lockers.get(fromId) ?? [])].sort();
+        const toOwners = [...(details.lockers.get(toId) ?? [])].sort();
+        const owners = [...new Set([...fromOwners, ...toOwners])].sort();
+        return {
+          fromId,
+          toId,
+          owners,
+          held: owners.length > 0,
+          legs: [
+            { from: fromId, owners: fromOwners },
+            { from: toId, owners: toOwners },
+          ],
+        };
       }),
     }),
   };

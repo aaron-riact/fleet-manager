@@ -58,10 +58,22 @@ describe("fleet locks", () => {
   test("edge owners follow bidirectional traffic", () => {
     const locks = buildLocks(corridor);
     const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
-    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", owners: [], held: false }]);
+    expect(locks.snapshot().edgeLocks).toEqual([
+      { fromId: "a", toId: "b", owners: [], held: false, legs: [{ from: "a", owners: [] }, { from: "b", owners: [] }] },
+    ]);
     r1.arrivedAt(0);
-    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", owners: ["r1"], held: true }]);
+    expect(locks.snapshot().edgeLocks).toEqual([
+      {
+        fromId: "a",
+        toId: "b",
+        owners: ["r1"],
+        held: true,
+        legs: [{ from: "a", owners: ["r1"] }, { from: "b", owners: [] }],
+      },
+    ]);
     r1.clearAllPathLocks();
-    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", owners: [], held: false }]);
+    expect(locks.snapshot().edgeLocks).toEqual([
+      { fromId: "a", toId: "b", owners: [], held: false, legs: [{ from: "a", owners: [] }, { from: "b", owners: [] }] },
+    ]);
   });
 });

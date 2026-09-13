@@ -37,27 +37,47 @@ export function FleetMap({
       style={{ width: "100%", height: "auto", background: "#0b0e14", borderRadius: 12 }}
     >
       <g id="graph-edges" strokeWidth={0.08}>
-          {site.links.map((link, i) => {
-            const from = byId.get(link.source);
-            const to = byId.get(link.destination);
-            if (!from || !to) return null;
-            const a = toSvg(from.x, from.y, bounds);
-            const b = toSvg(to.x, to.y, bounds);
-            const held =
-              edgeHeld.has(`${link.source}→${link.destination}`) ||
-              edgeHeld.has(`${link.destination}→${link.source}`);
-            return (
-              <line
-                key={`${link.source}-${link.destination}-${i}`}
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
-                stroke={held ? "#f0883e" : "#3b4657"}
-              />
-            );
-          })}
-        </g>
+        {site.links.map((link, i) => {
+          const from = byId.get(link.source);
+          const to = byId.get(link.destination);
+          if (!from || !to) return null;
+          const a = toSvg(from.x, from.y, bounds);
+          const b = toSvg(to.x, to.y, bounds);
+          const held =
+            edgeHeld.has(`${link.source}→${link.destination}`) ||
+            edgeHeld.has(`${link.destination}→${link.source}`);
+          return (
+            <line
+              key={`${link.source}-${link.destination}-${i}`}
+              x1={a.x}
+              y1={a.y}
+              x2={b.x}
+              y2={b.y}
+              stroke={held ? "#f0883e" : "#3b4657"}
+            />
+          );
+        })}
+        {(locks?.edgeLocks ?? []).flatMap((edge) =>
+          edge.legs
+            .filter((leg) => leg.owners.length > 0)
+            .map((leg) => {
+              const origin = byId.get(leg.from);
+              const otherId = leg.from === edge.fromId ? edge.toId : edge.fromId;
+              const other = byId.get(otherId);
+              if (!origin || !other) return null;
+              const a = toSvg(origin.x, origin.y, bounds);
+              const b = toSvg(other.x, other.y, bounds);
+              const mx = (a.x + b.x) / 2;
+              const my = (a.y + b.y) / 2;
+              const ang = Math.atan2(b.y - a.y, b.x - a.x);
+              const s = 0.28;
+              const tip = `${(mx + Math.cos(ang) * s).toFixed(3)},${(my + Math.sin(ang) * s).toFixed(3)}`;
+              const l = `${(mx + Math.cos(ang + 2.5) * s).toFixed(3)},${(my + Math.sin(ang + 2.5) * s).toFixed(3)}`;
+              const r = `${(mx + Math.cos(ang - 2.5) * s).toFixed(3)},${(my + Math.sin(ang - 2.5) * s).toFixed(3)}`;
+              return <polygon key={`${edge.fromId}-${edge.toId}-${leg.from}`} points={`${tip} ${l} ${r}`} fill="#f0883e" />;
+            }),
+        )}
+      </g>
       <g id="graph-nodes">
         {site.nodes.map((node) => {
           const p = toSvg(node.x, node.y, bounds);
