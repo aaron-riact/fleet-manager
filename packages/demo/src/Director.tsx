@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchRobots } from "./robots";
+import { freeSpot } from "./parking";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
 import { Fleet } from "@fleet-manager/vda";
@@ -36,6 +37,8 @@ export default function Director() {
   const [serials, setSerials] = useState<string[]>([]);
   const [poses, setPoses] = useState<Record<string, RobotPose>>({});
   const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
+  // parking spot id -> serial; idle robots live here, off the graph
+  const [parked, setParked] = useState<Record<string, string>>({});
   const [log, setLog] = useState<string[]>([]);
   const [spawnSerial, setSpawnSerial] = useState("demo-3");
   const [status, setStatus] = useState("booting…");
@@ -43,16 +46,21 @@ export default function Director() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const spots = site.parking ?? [];
       const fleet = await bootFleet({
         robots: [
-          { manufacturer: MANUFACTURER, serialNumber: "demo-1", x: site.nodes[0]!.x, y: site.nodes[0]!.y },
-          { manufacturer: MANUFACTURER, serialNumber: "demo-2", x: site.nodes[3]!.x, y: site.nodes[3]!.y },
+          { manufacturer: MANUFACTURER, serialNumber: "demo-1", x: spots[0]?.x ?? 0, y: spots[0]?.y ?? 0 },
+          { manufacturer: MANUFACTURER, serialNumber: "demo-2", x: spots[1]?.x ?? 0, y: spots[1]?.y ?? 0 },
         ],
       });
       if (cancelled) {
         await fleet.stop();
         return;
       }
+      setParked({
+        ...(spots[0] ? { [spots[0].id]: "demo-1" } : {}),
+        ...(spots[1] ? { [spots[1].id]: "demo-2" } : {}),
+      });
       fleetRef.current = fleet;
       svcRef.current = new Fleet(fleet.master, locksModel, (snap) => {
         if (!cancelled) setLocks(snap);
@@ -77,16 +85,31 @@ export default function Director() {
 
   async function spawn() {
     const fleet = fleetRef.current;
-    if (!fleet || !spawnSerial.trim()) return;
-    const pad = site.nodes[fleet.robots.length % site.nodes.length]!;
-    await fleet.spawn({ manufacturer: MANUFACTURER, serialNumber: spawnSerial.trim(), x: pad.x, y: pad.y });
+    const serial = spawnSerial.trim();
+    if (!fleet || !serial) return;
+    const spot = freeSpot(site.parking ?? [], parked);
+    if (!spot) {
+      setStatus("no free parking spot");
+      return;
+    }
+    await fleet.spawn({ manufacturer: MANUFACTURER, serialNumber: serial, x: spot.x, y: spot.y });
+    setParked((prev) => ({ ...prev, [spot.id]: serial }));
     setSerials(fleet.robots.map((r) => r.id.serialNumber));
+  }
+
+  function unpark(serialNumber: string) {
+    setParked((prev) => {
+      const next = { ...prev };
+      for (const [spot, who] of Object.entries(next)) if (who === serialNumber) delete next[spot];
+      return next;
+    });
   }
 
   async function drop(serialNumber: string) {
     const fleet = fleetRef.current;
     if (!fleet) return;
     await fleet.drop(serialNumber);
+    unpark(serialNumber);
     setSerials(fleet.robots.map((r) => r.id.serialNumber));
     setPoses((prev) => {
       const next = { ...prev };
@@ -107,6 +130,7 @@ export default function Director() {
         pose && Number.isFinite(pose.x) && Number.isFinite(pose.y)
           ? { x: pose.x, y: pose.y }
           : { x: site.nodes[0]!.x, y: site.nodes[0]!.y };
+      unpark(serialNumber);
       const tour = loopFrom(
         site.nodes.map((n) => ({ nodeId: n.id, x: n.x, y: n.y })),
         from.x,
@@ -115,7 +139,15 @@ export default function Director() {
       await svc.dispatch(
         robot.id,
         tour.map((w) => ({ nodeId: w.nodeId, x: w.x, y: w.y })),
+        { from },
       );
+      const last = tour[tour.length - 1]!;
+      const spot = freeSpot(site.parking ?? [], parked, last);
+      if (spot) {
+        setStatus(`parking: ${serialNumber} → ${spot.id}…`);
+        await svc.park(robot.id, spot, { from: last });
+        setParked((prev) => ({ ...prev, [spot.id]: serialNumber }));
+      }
       setStatus(`order done: ${serialNumber}`);
     } catch (e) {
       console.error("driveLoop failed", e);
@@ -134,6 +166,7 @@ export default function Director() {
         <FleetMap
           site={site}
           locks={locks}
+          parking={site.parking ?? []}
           robots={serials.map((s) => ({
             serialNumber: s,
             x: poses[s]?.x ?? Number.NaN,

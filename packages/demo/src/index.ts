@@ -4,3 +4,4 @@ export { driveThrough, loopFrom } from "./scenario.js";
 export type { Waypoint } from "./scenario.js";
 export { watchRobots } from "./robots.js";
 export type { RobotPose } from "./robots.js";
+export { freeSpot } from "./parking.js";

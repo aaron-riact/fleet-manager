@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import type { LockSnapshot, Site } from "@fleet-manager/core";
+import type { LockSnapshot, ParkingSpot, Site } from "@fleet-manager/core";
 import { boundsOf, indexNodes, toSvg, viewBoxFor } from "./map";
 
 export interface RobotDot {
@@ -13,10 +13,12 @@ export function FleetMap({
   site,
   robots = [],
   locks,
+  parking = [],
 }: {
   site: Site;
   robots?: RobotDot[];
   locks?: LockSnapshot;
+  parking?: ParkingSpot[];
 }) {
   const bounds = useMemo(() => boundsOf(site), [site]);
   const byId = useMemo(() => indexNodes(site.nodes), [site]);
@@ -84,6 +86,29 @@ export function FleetMap({
                 style={{ paintOrder: "stroke" }}
               >
                 {node.id}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+      <g id="parking">
+        {parking.map((spot) => {
+          const p = toSvg(spot.x, spot.y, bounds);
+          const s = 0.35;
+          return (
+            <g key={spot.id} id={`park-${spot.id}`}>
+              <rect
+                x={(p.x - s).toFixed(3)}
+                y={(p.y - s).toFixed(3)}
+                width={(s * 2).toFixed(3)}
+                height={(s * 2).toFixed(3)}
+                fill="transparent"
+                stroke="#8b949e"
+                strokeWidth={0.05}
+                strokeDasharray="0.15 0.1"
+              />
+              <text x={p.x} y={(p.y + s + 0.3).toFixed(3)} textAnchor="middle" fontSize={0.28} fill="#8b949e">
+                {spot.id}
               </text>
             </g>
           );
