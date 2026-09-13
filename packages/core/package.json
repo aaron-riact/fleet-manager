@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "dependencies": {
     "graferse": "^0.0.1-4",
-    "js-srp6a": "^1.0.3"
+    "js-srp6a": "^1.0.3",
+    "zod": "^4.6.4"
   },
   "scripts": {
     "build": "echo 'core: no build step (source-only ESM)'",
