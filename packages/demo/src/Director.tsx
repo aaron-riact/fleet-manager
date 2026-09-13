@@ -3,6 +3,7 @@ import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchRobots } from "./robots";
 import { freeSpot } from "./parking";
+import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
 import { Fleet } from "@fleet-manager/vda";
@@ -44,6 +45,8 @@ export default function Director() {
   // parking spot id -> serial; idle robots live here, off the graph
   const [parked, setParked] = useState<Record<string, string>>({});
   const [log, setLog] = useState<string[]>([]);
+  const [events, setEvents] = useState<string[]>([]);
+  const prevLocks = useRef<LockSnapshot | undefined>(undefined);
   const [spawnSerial, setSpawnSerial] = useState("demo-3");
   const [status, setStatus] = useState("booting…");
   const [robotStatus, setRobotStatus] = useState<Record<string, string>>({});
@@ -72,7 +75,12 @@ export default function Director() {
       fleetRef.current = fleet;
       svcRef.current = new Fleet(fleet.master, locksModel, {
         onLocks: (snap) => {
-          if (!cancelled) setLocks(snap);
+          if (cancelled) return;
+          for (const line of diffLocks(prevLocks.current, snap).map(formatLockEvent)) {
+            setEvents((prev) => [...prev.slice(-49), line]);
+          }
+          prevLocks.current = snap;
+          setLocks(snap);
         },
         onOrders: (list) => {
           if (!cancelled) setOrders(list);
@@ -260,6 +268,12 @@ export default function Director() {
                 </div>
               </div>
             ))}
+          </section>
+          <section style={panel}>
+            <h2 style={{ marginTop: 0 }}>Lock events</h2>
+            <pre style={{ maxHeight: 200, overflow: "auto", fontSize: "0.75rem", color: "#8b949e" }}>
+              {events.join("\n") || "no lock activity yet"}
+            </pre>
           </section>
           <section style={panel}>
             <h2 style={{ marginTop: 0 }}>Bus topics</h2>
