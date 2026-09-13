@@ -4,6 +4,7 @@ import type { AgvId, ClientOptions } from "vda-5050-lib";
 import { buildLocks } from "@fleet-manager/core";
 import type { LockSnapshot } from "@fleet-manager/core";
 import { Fleet } from "../src/fleet.js";
+import type { ActiveOrder } from "../src/fleet.js";
 import { MemoryHub, attachMemoryTransport } from "../src/fakeMqtt.js";
 
 const options: ClientOptions = {
@@ -53,7 +54,7 @@ describe("Fleet dispatch with locks", () => {
     const r = { manufacturer: "RobotCompany", serialNumber: "snap-1" };
     const c = await startAgv(hub, r, 0, 0);
     const seen: LockSnapshot[] = [];
-    const fleet = new Fleet(master, locks, (snap) => void seen.push(snap));
+    const fleet = new Fleet(master, locks, { onLocks: (snap) => void seen.push(snap) });
     try {
       await fleet.dispatch(r, [
         { nodeId: "x", x: 0, y: 0 },
@@ -176,6 +177,41 @@ describe("Fleet dispatch with locks", () => {
       await master.stop();
     }
   }, 90_000);
+
+  test("orders feed tracks release state and removal", async () => {
+    const site = {
+      name: "short",
+      nodes: [
+        { id: "x", x: 0, y: 0 },
+        { id: "y", x: 3, y: 0 },
+      ],
+      links: [{ source: "x", destination: "y", bidirectional: true }],
+    };
+    const locks = buildLocks(site);
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+    const r = { manufacturer: "RobotCompany", serialNumber: "ord-1" };
+    const c = await startAgv(hub, r, 0, 0);
+    const seen: ActiveOrder[][] = [];
+    const fleet = new Fleet(master, locks, { onOrders: (list) => void seen.push(list) });
+    try {
+      await fleet.dispatch(r, [
+        { nodeId: "x", x: 0, y: 0 },
+        { nodeId: "y", x: 3, y: 0 },
+      ]);
+      expect(seen.length).toBeGreaterThan(0);
+      const first = seen[0]![0]!;
+      expect(first.serial).toBe("ord-1");
+      expect(first.nodes.map((n) => n.released)).toEqual([true, false]);
+      const last = seen[seen.length - 1]!;
+      expect(last).toEqual([]);
+    } finally {
+      await c.stop();
+      await master.stop();
+    }
+  }, 60_000);
 
   test("park drives off-graph and holds no locks", async () => {
     const site = {

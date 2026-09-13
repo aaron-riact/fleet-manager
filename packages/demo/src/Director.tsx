@@ -6,6 +6,7 @@ import { freeSpot } from "./parking";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
 import { Fleet } from "@fleet-manager/vda";
+import type { ActiveOrder } from "@fleet-manager/vda";
 import { FleetMap } from "@fleet-manager/ui";
 import siteData from "../../../data/seed/sites/coalescent.json";
 import { buildLocks } from "@fleet-manager/core";
@@ -37,6 +38,7 @@ export default function Director() {
   const [serials, setSerials] = useState<string[]>([]);
   const [poses, setPoses] = useState<Record<string, RobotPose>>({});
   const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
+  const [orders, setOrders] = useState<ActiveOrder[]>([]);
   // parking spot id -> serial; idle robots live here, off the graph
   const [parked, setParked] = useState<Record<string, string>>({});
   const [log, setLog] = useState<string[]>([]);
@@ -62,8 +64,13 @@ export default function Director() {
         ...(spots[1] ? { [spots[1].id]: "demo-2" } : {}),
       });
       fleetRef.current = fleet;
-      svcRef.current = new Fleet(fleet.master, locksModel, (snap) => {
-        if (!cancelled) setLocks(snap);
+      svcRef.current = new Fleet(fleet.master, locksModel, {
+        onLocks: (snap) => {
+          if (!cancelled) setLocks(snap);
+        },
+        onOrders: (list) => {
+          if (!cancelled) setOrders(list);
+        },
       });
       setSerials(fleet.robots.map((r) => r.id.serialNumber));
       await watchRobots(fleet.master, MANUFACTURER, (pose) => {
@@ -192,6 +199,34 @@ export default function Director() {
               <input value={spawnSerial} onChange={(e) => setSpawnSerial(e.target.value)} placeholder="serial" />
               <button onClick={() => void spawn()}>spawn</button>
             </div>
+          </section>
+          <section style={panel}>
+            <h2 style={{ marginTop: 0 }}>Orders</h2>
+            {orders.length === 0 && <p style={{ color: "#8b949e" }}>none active</p>}
+            {orders.map((o) => (
+              <div key={o.orderId} style={{ margin: "0.25rem 0", fontSize: "0.8rem" }}>
+                <code>{o.serial}</code>{" "}
+                <span style={{ color: "#8b949e" }}>
+                  {o.orderId} · u{o.updateId}
+                </span>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                  {o.nodes.map((n, i) => (
+                    <span
+                      key={`${n.nodeId}-${i}`}
+                      style={{
+                        padding: "0 6px",
+                        borderRadius: 8,
+                        border: "1px solid #232b38",
+                        background: n.released ? "#1a7f3722" : "transparent",
+                        color: n.released ? "#7ee787" : "#8b949e",
+                      }}
+                    >
+                      {n.nodeId}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
           </section>
           <section style={panel}>
             <h2 style={{ marginTop: 0 }}>Bus topics</h2>

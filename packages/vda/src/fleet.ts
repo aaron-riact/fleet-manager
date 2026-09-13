@@ -75,6 +75,18 @@ export function stitchRelease(
   return next;
 }
 
+export interface ActiveOrder {
+  orderId: string;
+  serial: string;
+  nodes: Array<{ nodeId: string; released: boolean }>;
+  updateId: number;
+}
+
+export interface FleetEvents {
+  onLocks?: (snapshot: LockSnapshot) => void;
+  onOrders?: (orders: ActiveOrder[]) => void;
+}
+
 let dispatchCounter = 1;
 
 /** Below this distance the first waypoint is directly reachable (adapter tolerance is 0.5m). */
@@ -85,15 +97,25 @@ const APPROACH_THRESHOLD_M = 0.4;
  * locked horizon. Stitch updates release further nodes as locks allow.
  */
 export class Fleet {
+  private readonly activeOrders = new Map<string, ActiveOrder>();
+
   constructor(
     private readonly master: MasterController,
     private readonly locks: FleetLocks,
-    private readonly onLocks?: (snapshot: LockSnapshot) => void,
+    private readonly events: FleetEvents = {},
   ) {}
 
   private emit(): void {
     try {
-      this.onLocks?.(this.locks.snapshot());
+      this.events.onLocks?.(this.locks.snapshot());
+    } catch {
+      /* listener errors must not break dispatch */
+    }
+  }
+
+  private emitOrders(): void {
+    try {
+      this.events.onOrders?.([...this.activeOrders.values()]);
     } catch {
       /* listener errors must not break dispatch */
     }
@@ -172,20 +194,36 @@ export class Fleet {
 
   private lockedDispatch(agvId: AgvId, waypoints: FleetWaypoint[]): Promise<void> {
     const serial = agvId.serialNumber ?? "unknown";
-    const { order } = buildIncrementalOrder(`fleet-order-${dispatchCounter++}`, waypoints);
+    const orderId = `fleet-order-${dispatchCounter++}`;
+    const { order } = buildIncrementalOrder(orderId, waypoints);
     const nodeIds = waypoints.map((w) => w.nodeId);
     const locker = this.locks.lockerFor(serial);
+
+    const track = (releasedSeqs: Set<number>, updateId: number) => {
+      this.activeOrders.set(serial, {
+        orderId,
+        serial,
+        nodes: nodeIds.map((nodeId, i) => ({ nodeId, released: releasedSeqs.has(i * 2) })),
+        updateId,
+      });
+      this.emitOrders();
+    };
 
     return new Promise<void>((resolve, reject) => {
       let orderUpdateId = 0;
       const released = new Set<number>([0]);
       let baseSeq = 0;
 
+      // Register before assigning: the AGV may traverse its start node
+      // before the initial assign resolves (it starts there).
+      track(released, orderUpdateId);
+
       const releaseAllowed = (indexes: number[]) => {
         const seqs = indexes.map((i) => i * 2);
         if (seqs.every((s) => released.has(s))) return;
         for (const s of seqs) released.add(s);
         const update = stitchRelease(order, [...released], ++orderUpdateId, baseSeq);
+        track(released, orderUpdateId);
         this.master.assignOrder(agvId, update, callbacks as never).catch(reject);
       };
 
@@ -203,6 +241,8 @@ export class Fleet {
           // Keep holding the node we sit on; parking clears explicitly.
           granting.clearAllExceptLastPathLocks();
           this.emit();
+          this.activeOrders.delete(serial);
+          this.emitOrders();
           if (error) reject(error);
           else resolve();
         },
@@ -225,6 +265,8 @@ export class Fleet {
           } catch {
             /* already clean */
           }
+          this.activeOrders.delete(serial);
+          this.emitOrders();
           reject(error);
         });
     });
