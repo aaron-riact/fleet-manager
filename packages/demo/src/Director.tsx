@@ -137,6 +137,8 @@ export default function Director() {
     setRobot(serialNumber, "starting…");
     setStatus(`order running: ${serialNumber}…`);
     try {
+      // Leaving parking: the spot frees up the moment the tour starts.
+      unpark(serialNumber);
       // Tour starts at the nearest node, but the deviation check needs the
       // robot's real pose (usually a parking spot), not the tour start.
       const spotId = Object.entries(parked).find(([, who]) => who === serialNumber)?.[0];
@@ -157,7 +159,12 @@ export default function Director() {
         { from: home },
       );
       const last = tour[tour.length - 1]!;
-      const spot = freeSpot(site.parking ?? [], parked, last);
+      // Occupancy without self (already unparked above; closure is stale).
+      const free: Record<string, string> = {};
+      for (const [spotId, who] of Object.entries(parked)) {
+        if (who !== serialNumber) free[spotId] = who;
+      }
+      const spot = freeSpot(site.parking ?? [], free, last);
       if (spot) {
         setRobot(serialNumber, `parking → ${spot.id}…`);
         setStatus(`parking: ${serialNumber} → ${spot.id}…`);
