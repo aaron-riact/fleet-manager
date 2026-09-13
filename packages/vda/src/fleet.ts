@@ -85,6 +85,7 @@ export interface ActiveOrder {
 export interface FleetEvents {
   onLocks?: (snapshot: LockSnapshot) => void;
   onOrders?: (orders: ActiveOrder[]) => void;
+  onArrived?: (serial: string, nodeId: string, index: number) => void;
 }
 
 let dispatchCounter = 1;
@@ -238,6 +239,7 @@ export class Fleet {
           if (index >= 0) {
             baseSeq = Math.max(baseSeq, index * 2);
             granting.arrivedAt(index);
+            this.events.onArrived?.(serial, node.nodeId, index);
             this.emit();
           }
         },
@@ -262,6 +264,7 @@ export class Fleet {
         .assignOrder(agvId, order, callbacks as never)
         .then(() => {
           granting.arrivedAt(0);
+          this.events.onArrived?.(serial, nodeIds[0]!, 0);
           this.emit();
         })
         .catch((error: unknown) => {

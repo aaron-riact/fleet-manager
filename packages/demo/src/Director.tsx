@@ -83,6 +83,10 @@ export default function Director() {
           prevLocks.current = snap;
           setLocks(snap);
         },
+        onArrived: (serial, nodeId, index) => {
+          if (cancelled) return;
+          setEvents((prev) => [...prev.slice(-49), `${serial} at ${nodeId} (${index})`]);
+        },
         onOrders: (list) => {
           if (!cancelled) setOrders(list);
         },
