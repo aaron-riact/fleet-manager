@@ -23,6 +23,7 @@ export interface LockSnapshot {
 export interface PathLocker {
   arrivedAt(index: number): void;
   clearAllPathLocks(): void;
+  clearAllExceptLastPathLocks(): void;
 }
 
 export interface AgentLocker {
@@ -32,6 +33,8 @@ export interface AgentLocker {
 
 export interface FleetLocks {
   lockerFor(agent: string): AgentLocker;
+  /** Idle hold: a robot sitting on a graph node keeps owning it. */
+  holdNode(agent: string, nodeId: string): boolean;
   snapshot(): LockSnapshot;
 }
 
@@ -107,6 +110,7 @@ export function buildLocks(site: Site): FleetLocks {
         clearAllLocks: () => locker.clearAllLocks(),
       };
     },
+    holdNode: (agent: string, nodeId: string) => getLock(nodeId).requestLock(agent, nodeId),
     snapshot: () => ({
       nodeLocks: [...nodeLocks].map(([id, lock]) => ({
         id,

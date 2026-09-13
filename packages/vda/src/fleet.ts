@@ -200,7 +200,8 @@ export class Fleet {
         },
         onOrderProcessed: (error: unknown, _cancelled: boolean, active: boolean) => {
           if (active) return;
-          granting.clearAllPathLocks();
+          // Keep holding the node we sit on; parking clears explicitly.
+          granting.clearAllExceptLastPathLocks();
           this.emit();
           if (error) reject(error);
           else resolve();

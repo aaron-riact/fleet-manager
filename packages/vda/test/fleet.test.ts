@@ -37,8 +37,7 @@ async function pollFor(label: string, cond: () => boolean, timeoutMs: number): P
 }
 
 describe("Fleet dispatch with locks", () => {
-  test("lock snapshots stream from dispatch events", async () => {
-    const site = {
+  test("lock snapshots stream from dispatch events", async () => {    const site = {
       name: "short",
       nodes: [
         { id: "x", x: 0, y: 0 },
@@ -62,24 +61,27 @@ describe("Fleet dispatch with locks", () => {
       ]);
       expect(seen.length).toBeGreaterThan(0);
       expect(seen.some((s) => s.nodeLocks.find((n) => n.id === "x")?.owners.includes("snap-1"))).toBe(true);
+      // idle robots keep holding the node they sit on
       const last = seen[seen.length - 1]!;
-      expect(last.nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+      expect(last.nodeLocks.find((n) => n.id === "y")?.owners).toEqual(["snap-1"]);
     } finally {
       await c.stop();
       await master.stop();
     }
   }, 60_000);
-  test("second robot waits for the shared node, then both finish", async () => {
+  test("second robot follows as soon as the shared node is free", async () => {
     const site = {
       name: "corridor",
       nodes: [
         { id: "a", x: 0, y: 0 },
-        { id: "b", x: 20, y: 0 },
-        { id: "c", x: 20, y: 20 },
+        { id: "b", x: 10, y: 0 },
+        { id: "c", x: 20, y: 0 },
+        { id: "d", x: 10, y: 10 },
       ],
       links: [
         { source: "a", destination: "b", bidirectional: true },
-        { source: "c", destination: "b", bidirectional: true },
+        { source: "b", destination: "c", bidirectional: true },
+        { source: "d", destination: "b", bidirectional: true },
       ],
     };
     const locks = buildLocks(site);
@@ -91,13 +93,15 @@ describe("Fleet dispatch with locks", () => {
     const r1 = { manufacturer: "RobotCompany", serialNumber: "fleet-1" };
     const r2 = { manufacturer: "RobotCompany", serialNumber: "fleet-2" };
     const c1 = await startAgv(hub, r1, 0, 0);
-    const c2 = await startAgv(hub, r2, 20, 20);
+    const c2 = await startAgv(hub, r2, 10, 10);
     const fleet = new Fleet(master, locks);
 
     try {
+      // r1 passes through b on its way to c; r2 wants b from d
       const p1 = fleet.dispatch(r1, [
         { nodeId: "a", x: 0, y: 0 },
-        { nodeId: "b", x: 20, y: 0 },
+        { nodeId: "b", x: 10, y: 0 },
+        { nodeId: "c", x: 20, y: 0 },
       ]);
       // r1 takes the shared node first
       await pollFor(
@@ -109,8 +113,8 @@ describe("Fleet dispatch with locks", () => {
       const state: { done: string | null } = { done: null };
       const p2 = fleet
         .dispatch(r2, [
-          { nodeId: "c", x: 20, y: 20 },
-          { nodeId: "b", x: 20, y: 0 },
+          { nodeId: "d", x: 10, y: 10 },
+          { nodeId: "b", x: 10, y: 0 },
         ])
         .then(
           () => {
@@ -126,10 +130,13 @@ describe("Fleet dispatch with locks", () => {
       expect(state.done).toBeNull();
       expect(locks.snapshot().nodeLocks.find((n) => n.id === "b")?.owners).toEqual(["fleet-1"]);
 
+      // r1 moves on to c and releases b; r2 follows in
       await p1;
       await p2;
       expect(state.done).toBe("ok");
-      expect(locks.snapshot().nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+      // each sits on its final node, holding it
+      expect(locks.snapshot().nodeLocks.find((n) => n.id === "c")?.owners).toEqual(["fleet-1"]);
+      expect(locks.snapshot().nodeLocks.find((n) => n.id === "b")?.owners).toEqual(["fleet-2"]);
     } finally {
       await c1.stop();
       await c2.stop();
@@ -163,7 +170,7 @@ describe("Fleet dispatch with locks", () => {
         ],
         { from: { x: 10, y: 10 } },
       );
-      expect(locks.snapshot().nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+      expect(locks.snapshot().nodeLocks.find((n) => n.id === "b")?.owners).toEqual(["far-1"]);
     } finally {
       await c.stop();
       await master.stop();
