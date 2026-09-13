@@ -15,7 +15,7 @@ export function FleetMap({ site, robots = [] }: { site: Site; robots?: RobotDot[
 
   return (
     <svg
-      viewBox={viewBoxFor(bounds)}
+      viewBox={viewBoxFor(bounds, 1.5)}
       role="img"
       aria-label={`Map of ${site.name}`}
       style={{ width: "100%", height: "auto", background: "#0b0e14", borderRadius: 12 }}
@@ -36,7 +36,16 @@ export function FleetMap({ site, robots = [] }: { site: Site; robots?: RobotDot[
           return (
             <g key={node.id} id={`node-${node.id}`}>
               <circle cx={p.x} cy={p.y} r={node.radius ?? 0.25} fill="#0b0e14" stroke="#8b949e" strokeWidth={0.06} />
-              <text x={p.x} y={p.y - (node.radius ?? 0.25) - 0.15} textAnchor="middle" fontSize={0.5} fill="#8b949e">
+              <text
+                x={p.x}
+                y={p.y - (node.radius ?? 0.25) - 0.15}
+                textAnchor="middle"
+                fontSize={0.3}
+                fill="#8b949e"
+                stroke="#0b0e14"
+                strokeWidth={0.06}
+                style={{ paintOrder: "stroke" }}
+              >
                 {node.id}
               </text>
             </g>
@@ -50,7 +59,7 @@ export function FleetMap({ site, robots = [] }: { site: Site; robots?: RobotDot[
           return (
             <g key={r.serialNumber} id={`robot-${r.serialNumber}`}>
               <circle cx={p.x} cy={p.y} r={0.3} fill="#2f81f7" opacity={0.85} />
-              <text x={p.x} y={p.y - 0.45} textAnchor="middle" fontSize={0.5} fill="#e6edf3">
+              <text x={p.x} y={p.y + 0.75} textAnchor="middle" fontSize={0.3} fill="#e6edf3">
                 {r.serialNumber}
               </text>
             </g>
