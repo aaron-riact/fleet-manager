@@ -235,8 +235,13 @@ export class Fleet {
 
       const callbacks = {
         onNodeTraversed: (node: { nodeId: string; sequenceId?: number }) => {
-          const index = nodeIds.indexOf(node.nodeId);
-          if (index >= 0) {
+          // Position by sequenceId, NOT indexOf: loop tours revisit nodes,
+          // and the first occurrence would rewind the lock window.
+          const index =
+            typeof node.sequenceId === "number"
+              ? node.sequenceId / 2
+              : nodeIds.indexOf(node.nodeId);
+          if (index >= 0 && index < nodeIds.length) {
             baseSeq = Math.max(baseSeq, index * 2);
             granting.arrivedAt(index);
             this.events.onArrived?.(serial, node.nodeId, index);
