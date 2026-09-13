@@ -1,0 +1,11 @@
+{
+  "name": "@fleet-manager/transport-mqtt",
+  "version": "0.1.0",
+  "description": "MQTT Bus for real robots (phase 2)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'transport-mqtt: stub (phase 2)'",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

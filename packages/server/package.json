@@ -1,0 +1,11 @@
+{
+  "name": "@fleet-manager/server",
+  "version": "0.1.0",
+  "description": "Bun.serve API: REST + tRPC, SSE streams (phase 3)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'server: stub (phase 3)'",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

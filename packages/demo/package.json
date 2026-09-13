@@ -1,0 +1,11 @@
+{
+  "name": "@fleet-manager/demo",
+  "version": "0.1.0",
+  "description": "Serverless in-browser sim: core + memory bus + virtual AGVs + UI (phase 5)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'demo: stub (phase 5)'",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

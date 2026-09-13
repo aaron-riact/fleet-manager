@@ -1,0 +1,11 @@
+{
+  "name": "@fleet-manager/cli",
+  "version": "0.1.0",
+  "description": "CLI: users add, demo runner, fm-vda5050 migration (phase 3)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'cli: stub (phase 3)'",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}
