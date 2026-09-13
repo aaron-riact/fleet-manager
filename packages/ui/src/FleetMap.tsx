@@ -95,8 +95,22 @@ export function FleetMap({
         {parking.map((spot) => {
           const p = toSvg(spot.x, spot.y, bounds);
           const s = 0.35;
+          const entry = spot.entry ? byId.get(spot.entry) : undefined;
+          const e = entry ? toSvg(entry.x, entry.y, bounds) : undefined;
           return (
             <g key={spot.id} id={`park-${spot.id}`}>
+              {e && (
+                <line
+                  x1={p.x.toFixed(3)}
+                  y1={p.y.toFixed(3)}
+                  x2={e.x.toFixed(3)}
+                  y2={e.y.toFixed(3)}
+                  stroke="#8b949e"
+                  strokeWidth={0.04}
+                  strokeDasharray="0.2 0.15"
+                  opacity={0.7}
+                />
+              )}
               <rect
                 x={(p.x - s).toFixed(3)}
                 y={(p.y - s).toFixed(3)}

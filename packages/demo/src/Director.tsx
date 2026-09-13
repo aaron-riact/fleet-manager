@@ -125,12 +125,14 @@ export default function Director() {
     if (!fleet || !svc || !robot) return;
     setStatus(`order running: ${serialNumber}…`);
     try {
+      // Parked robots anchor the tour at their spot's entry node;
+      // otherwise start from the nearest node to the live pose.
+      const spotId = Object.entries(parked).find(([, who]) => who === serialNumber)?.[0];
+      const anchor = (site.parking ?? []).find((s) => s.id === spotId);
+      const entry = anchor?.entry ? site.nodes.find((n) => n.id === anchor.entry) : undefined;
       const pose = poses[serialNumber];
       const from =
-        pose && Number.isFinite(pose.x) && Number.isFinite(pose.y)
-          ? { x: pose.x, y: pose.y }
-          : { x: site.nodes[0]!.x, y: site.nodes[0]!.y };
-      unpark(serialNumber);
+        entry ?? (pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) ? pose : undefined) ?? site.nodes[0]!;
       const tour = loopFrom(
         site.nodes.map((n) => ({ nodeId: n.id, x: n.x, y: n.y })),
         from.x,

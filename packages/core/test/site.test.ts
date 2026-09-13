@@ -35,4 +35,17 @@ describe("site schema", () => {
     expect(parseSite(JSON.stringify(loop)).parking).toBeUndefined();
     expect(() => parseSite(JSON.stringify({ ...loop, parking: [{ id: "a", x: 5, y: 4 }] }))).toThrow();
   });
+
+  test("parking entry must reference a known node", () => {
+    const nodes = [
+      { id: "a", x: 0, y: 0 },
+      { id: "b", x: 5, y: 0 },
+    ];
+    expect(
+      parseSite(JSON.stringify({ name: "s", nodes, links: [], parking: [{ id: "p1", x: 1, y: 1, entry: "a" }] })).parking,
+    ).toHaveLength(1);
+    expect(() =>
+      parseSite(JSON.stringify({ name: "s", nodes, links: [], parking: [{ id: "p1", x: 1, y: 1, entry: "ghost" }] })),
+    ).toThrow(/entries must reference/);
+  });
 });

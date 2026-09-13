@@ -18,7 +18,7 @@
     { "source": "west", "destination": "east", "bidirectional": true }
   ],
   "parking": [
-    { "id": "p1", "x": 4, "y": 5 },
-    { "id": "p2", "x": 8, "y": 5 }
+    { "id": "p1", "x": 4, "y": 5, "entry": "west" },
+    { "id": "p2", "x": 8, "y": 5, "entry": "east" }
   ]
 }

@@ -31,6 +31,8 @@ export const ParkingSpotSchema = z.object({
   x: z.number().finite(),
   y: z.number().finite(),
   theta: z.number().finite().optional(),
+  /** Graph node this spot feeds (approach tours start here). */
+  entry: z.string().min(1).optional(),
 });
 
 export type ParkingSpot = z.infer<typeof ParkingSpotSchema>;
@@ -47,9 +49,12 @@ export const SiteSchema = z
       const ids = new Set(site.nodes.map((n) => n.id));
       if (!site.links.every((l) => ids.has(l.source) && ids.has(l.destination))) return false;
       // parking lives off-graph: ids must not collide with nodes
-      return (site.parking ?? []).every((p) => !ids.has(p.id));
+      const parking = site.parking ?? [];
+      if (!parking.every((p) => !ids.has(p.id))) return false;
+      // entry links must land on known nodes
+      return parking.every((p) => !p.entry || ids.has(p.entry));
     },
-    { message: "links must reference known nodes and parking ids must not collide with nodes" },
+    { message: "links must reference known nodes; parking ids must not collide; entries must reference known nodes" },
   );
 
 export type Site = z.infer<typeof SiteSchema>;
