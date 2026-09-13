@@ -1,4 +1,4 @@
-import { Graferse, makeMakeLocker } from "graferse";
+import { Graferse } from "graferse";
 import type { NextNode } from "graferse";
 import type { Site } from "./site.js";
 
@@ -11,7 +11,7 @@ export interface NodeLockState {
 export interface EdgeLockState {
   fromId: string;
   toId: string;
-  /** Held by someone (owner identities aren't exposed by graferse). */
+  owners: string[];
   held: boolean;
 }
 
@@ -26,7 +26,7 @@ export interface PathLocker {
 }
 
 export interface AgentLocker {
-  makePathLocker(path: string[], onAllowed: (next: NextNode<string>[], remaining: number) => void): PathLocker;
+  makePathLocker(path: string[], onAllowed: (next: NextNode[], remaining: number) => void): PathLocker;
   clearAllLocks(): void;
 }
 
@@ -43,14 +43,14 @@ const linkKey = (a: string, b: string) => `${a}→${b}`;
  * Agents lock current+next as they arrive; snapshot() feeds the overlay/API.
  */
 export function buildLocks(site: Site): FleetLocks {
-  const creator = new Graferse();
-  const nodeLocks = new Map<string, ReturnType<Graferse["makeLock"]>>();
-  for (const node of site.nodes) nodeLocks.set(node.id, creator.makeLock());
+  const creator = new Graferse<string>((x) => x);
+  const nodeLocks = new Map<string, ReturnType<Graferse<string>["makeLock"]>>();
+  for (const node of site.nodes) nodeLocks.set(node.id, creator.makeLock(node.id));
 
-  const linkLocks = new Map<string, ReturnType<Graferse["makeLinkLock"]>>();
+  const linkLocks = new Map<string, ReturnType<Graferse<string>["makeLinkLock"]>>();
   const linkIndex = new Map<string, { fromId: string; toId: string }>();
   for (const link of site.links) {
-    const lock = creator.makeLinkLock(link.bidirectional ?? false);
+    const lock = creator.makeLinkLock(link.source, link.destination, link.bidirectional ?? false);
     linkLocks.set(linkKey(link.source, link.destination), lock);
     linkLocks.set(linkKey(link.destination, link.source), lock);
     linkIndex.set(linkKey(link.source, link.destination), { fromId: link.source, toId: link.destination });
@@ -67,7 +67,7 @@ export function buildLocks(site: Site): FleetLocks {
     return lock;
   };
 
-  const makeLocker = makeMakeLocker<string, string>(creator, getLock, getLockForLink, (x) => x);
+  const makeLocker = creator.makeMakeLocker(getLock, getLockForLink);
 
   return {
     lockerFor: (agent: string) => {
@@ -83,11 +83,13 @@ export function buildLocks(site: Site): FleetLocks {
         owners: [...lock.lockedBy].sort(),
         waiters: [...lock.waiting].sort(),
       })),
-      edgeLocks: [...linkIndex].map(([, { fromId, toId }]) => ({
-        fromId,
-        toId,
-        held: linkLocks.get(linkKey(fromId, toId))!.isLocked(),
-      })),
+      edgeLocks: [...linkIndex].map(([, { fromId, toId }]) => {
+        const details = linkLocks.get(linkKey(fromId, toId))!.getDetails();
+        const owners = [
+          ...new Set([...(details.lockers.get(fromId) ?? []), ...(details.lockers.get(toId) ?? [])]),
+        ].sort();
+        return { fromId, toId, owners, held: owners.length > 0 };
+      }),
     }),
   };
 }

@@ -20,7 +20,7 @@ describe("fleet locks", () => {
       locks.snapshot().nodeLocks.filter((n) => n.owners.includes("r1")).map((n) => n.id).sort(),
     ).toEqual(["a", "b"]);
 
-    let granted: NextNode<string>[] = [{ node: "?", index: -1 }];
+    let granted: NextNode[] = [{ node: "?", index: -1 }];
     locks.lockerFor("r2").makePathLocker(["b", "a"], (next) => {
       granted = next;
     }).arrivedAt(0);
@@ -30,7 +30,7 @@ describe("fleet locks", () => {
 
   test("release wakes the waiter into the corridor", () => {
     const locks = buildLocks(corridor);
-    const seen: string[][] = [];
+    const seen: (string | number)[][] = [];
     const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
     r1.arrivedAt(0);
     const l2 = locks.lockerFor("r2").makePathLocker(["b", "a"], (next) => {
@@ -48,10 +48,10 @@ describe("fleet locks", () => {
   test("edge held flag follows bidirectional traffic", () => {
     const locks = buildLocks(corridor);
     const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
-    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", held: false }]);
+    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", owners: [], held: false }]);
     r1.arrivedAt(0);
-    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", held: true }]);
+    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", owners: ["r1"], held: true }]);
     r1.clearAllPathLocks();
-    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", held: false }]);
+    expect(locks.snapshot().edgeLocks).toEqual([{ fromId: "a", toId: "b", owners: [], held: false }]);
   });
 });
