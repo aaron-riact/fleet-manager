@@ -27,4 +27,12 @@ describe("site schema", () => {
     expect(() => parseSite("{nope")).toThrow(/not valid JSON/);
     expect(() => parseSite(JSON.stringify({ ...loop, nodes: [{ id: "a", x: NaN, y: 0 }] }))).toThrow();
   });
+
+  test("parking is optional and must not collide with nodes", () => {
+    expect(parseSite(JSON.stringify({ ...loop, parking: [{ id: "p1", x: 5, y: 4 }] })).parking).toEqual([
+      { id: "p1", x: 5, y: 4 },
+    ]);
+    expect(parseSite(JSON.stringify(loop)).parking).toBeUndefined();
+    expect(() => parseSite(JSON.stringify({ ...loop, parking: [{ id: "a", x: 5, y: 4 }] }))).toThrow();
+  });
 });

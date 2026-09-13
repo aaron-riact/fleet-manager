@@ -22,18 +22,34 @@ export const MapLinkSchema = z.object({
 
 export type MapLink = z.infer<typeof MapLinkSchema>;
 
+/**
+ * Parking spots live off the graph: idle robots wait here holding no
+ * locks, so through-traffic never routes around a parked robot.
+ */
+export const ParkingSpotSchema = z.object({
+  id: z.string().min(1),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  theta: z.number().finite().optional(),
+});
+
+export type ParkingSpot = z.infer<typeof ParkingSpotSchema>;
+
 export const SiteSchema = z
   .object({
     name: z.string().min(1),
     nodes: z.array(MapNodeSchema).min(1),
     links: z.array(MapLinkSchema),
+    parking: z.array(ParkingSpotSchema).optional(),
   })
   .refine(
     (site) => {
       const ids = new Set(site.nodes.map((n) => n.id));
-      return site.links.every((l) => ids.has(l.source) && ids.has(l.destination));
+      if (!site.links.every((l) => ids.has(l.source) && ids.has(l.destination))) return false;
+      // parking lives off-graph: ids must not collide with nodes
+      return (site.parking ?? []).every((p) => !ids.has(p.id));
     },
-    { message: "links must reference known nodes" },
+    { message: "links must reference known nodes and parking ids must not collide with nodes" },
   );
 
 export type Site = z.infer<typeof SiteSchema>;

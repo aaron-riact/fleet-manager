@@ -16,5 +16,9 @@
     { "source": "southeast", "destination": "southwest", "bidirectional": true },
     { "source": "southwest", "destination": "west", "bidirectional": true },
     { "source": "west", "destination": "east", "bidirectional": true }
+  ],
+  "parking": [
+    { "id": "p1", "x": 4, "y": 5 },
+    { "id": "p2", "x": 8, "y": 5 }
   ]
 }
