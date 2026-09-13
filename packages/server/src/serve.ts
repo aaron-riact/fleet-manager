@@ -24,7 +24,10 @@ function bearer(req: Request): string {
 }
 
 function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status });
+  return Response.json(data, {
+    status,
+    headers: { "Access-Control-Allow-Origin": "*" },
+  });
 }
 
 function failure(error: unknown): Response {
@@ -39,6 +42,16 @@ export async function serve(options: ServeOptions) {
     port: options.port ?? 4000,
     async fetch(req) {
       const url = new URL(req.url);
+      if (req.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "authorization, content-type",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          },
+        });
+      }
       try {
         if (req.method === "GET" && url.pathname === "/api/health") {
           return json({ ok: true });

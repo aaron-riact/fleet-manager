@@ -31,6 +31,9 @@ describe("HTTP API", () => {
     try {
       expect(await (await fetch(`${base}/api/health`)).json()).toEqual({ ok: true });
 
+      const preflight = await fetch(`${base}/api/login/start`, { method: "OPTIONS" });
+      expect(preflight.status).toBe(204);
+      expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
       const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
       const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
       const eph = srpClient.generateEphemeral();
