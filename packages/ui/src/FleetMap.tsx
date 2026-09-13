@@ -162,6 +162,30 @@ export function FleetMap({
           );
         })}
       </g>
+      <g id="waits">
+        {(locks?.nodeLocks ?? []).flatMap((node) =>
+          (node.waiters ?? []).flatMap((serial) => {
+            const robot = robots.find((r) => r.serialNumber === serial);
+            const target = byId.get(node.id);
+            if (!robot || !target || !Number.isFinite(robot.x) || !Number.isFinite(robot.y)) return [];
+            const a = toSvg(robot.x, robot.y, bounds);
+            const b = toSvg(target.x, target.y, bounds);
+            return [
+              <line
+                key={`wait-${serial}-${node.id}`}
+                x1={a.x.toFixed(3)}
+                y1={a.y.toFixed(3)}
+                x2={b.x.toFixed(3)}
+                y2={b.y.toFixed(3)}
+                stroke="#e3b341"
+                strokeWidth={0.05}
+                strokeDasharray="0.2 0.15"
+                opacity={0.9}
+              />,
+            ];
+          }),
+        )}
+      </g>
     </svg>
   );
 }
