@@ -4,6 +4,9 @@
   "description": "Runtime-agnostic fleet logic: transport interface, graph/locks, orders, auth",
   "type": "module",
   "main": "./src/index.ts",
+  "dependencies": {
+    "graferse": "^0.0.1-4"
+  },
   "scripts": {
     "build": "echo 'core: no build step (source-only ESM)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
