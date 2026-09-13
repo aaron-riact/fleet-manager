@@ -1,0 +1,14 @@
+{
+  "name": "@fleet-manager/core",
+  "version": "0.1.0",
+  "description": "Runtime-agnostic fleet logic: transport interface, graph/locks, orders, auth",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'core: no build step (source-only ESM)'",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
