@@ -8,6 +8,8 @@
     "@fleet-manager/core": "workspace:*"
   },
   "scripts": {
+    "serve": "bun ./src/dev.ts",
+    "dev": "bun --watch ./src/dev.ts",
     "build": "echo 'server: stub (phase 3)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
