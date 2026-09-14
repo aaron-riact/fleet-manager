@@ -7,7 +7,9 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "dev:server": "bun run --filter './packages/server' serve",
+    "dev:ui": "bun run --filter './packages/ui' dev",
     "build": "bun run --filter './packages/*' build",
     "test": "bun test packages/",
     "typecheck": "bun run --filter './packages/*' typecheck",
