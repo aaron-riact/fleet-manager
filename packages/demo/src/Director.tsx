@@ -170,11 +170,10 @@ export default function Director() {
         home.x,
         home.y,
       );
-      await svc.dispatch(
-        robot.id,
-        tour.map((w) => ({ nodeId: w.nodeId, x: w.x, y: w.y })),
-        { from: home },
-      );
+      // Claim the exit BEFORE dispatching. The tour and the park leg go out
+      // as one order so the locker knows we leave the graph at the end —
+      // otherwise it must assume we stop on the ring and keep the whole
+      // bidirectional run clear, which shuts every follower out.
       const last = tour[tour.length - 1]!;
       // Occupancy without self (already unparked above; closure is stale).
       const free: Record<string, string> = {};
@@ -183,10 +182,19 @@ export default function Director() {
       }
       const spot = freeSpot(site.parking ?? [], free, last);
       if (spot) {
-        setRobot(serialNumber, `parking → ${spot.id}…`);
-        setStatus(`parking: ${serialNumber} → ${spot.id}…`);
-        await svc.park(robot.id, spot, { from: last });
         setParked((prev) => ({ ...prev, [spot.id]: serialNumber }));
+        setRobot(serialNumber, `tour → park ${spot.id}…`);
+      }
+      try {
+        await svc.dispatch(
+          robot.id,
+          tour.map((w) => ({ nodeId: w.nodeId, x: w.x, y: w.y })),
+          { from: home, park: spot },
+        );
+      } catch (e) {
+        // Release the reservation we took above, or the spot leaks.
+        if (spot) unpark(serialNumber);
+        throw e;
       }
       setRobot(serialNumber, "done");
       setStatus(`order done: ${serialNumber}`);
