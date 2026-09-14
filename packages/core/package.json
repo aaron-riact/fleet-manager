@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "graferse": "file:../../../graferse",
+    "graferse": "^0.1.0",
     "js-srp6a": "^1.0.3",
     "zod": "^4.6.4"
   },
