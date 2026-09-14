@@ -9,6 +9,13 @@ export interface FleetWaypoint {
   y: number;
 }
 
+/** Where a robot leaves the graph at the end of a tour. */
+export interface ParkingTarget {
+  id: string;
+  x: number;
+  y: number;
+}
+
 interface BuiltOrder {
   order: Headerless<Order>;
   sequenceOf: Map<string, number>;
@@ -125,7 +132,7 @@ export class Fleet {
   async dispatch(
     agvId: AgvId,
     waypoints: FleetWaypoint[],
-    opts: { from?: { x: number; y: number } } = {},
+    opts: { from?: { x: number; y: number }; park?: ParkingTarget } = {},
   ): Promise<void> {
     if (waypoints.length === 0) throw new Error("dispatch needs at least one waypoint");
     const serial = agvId.serialNumber ?? "unknown";
@@ -137,11 +144,22 @@ export class Fleet {
     // Off-graph starts (parking spots): prepend the current pose as a
     // pseudo-node. It resolves to always-free dummy locks, so the approach
     // leg runs lock-free and the tour engages the graph on arrival.
-    const points =
+    const head =
       opts.from && Math.hypot(first.x - opts.from.x, first.y - opts.from.y) > APPROACH_THRESHOLD_M
         ? [{ nodeId: `${OFF_GRAPH_PREFIX}start-${dispatchCounter}`, x: opts.from.x, y: opts.from.y }, ...waypoints]
         : waypoints;
-    return this.lockedDispatch(agvId, points);
+    // Declare the exit in the same order. A tour that ends on the graph has
+    // no safe stopping point in bidirectional territory, so the locker must
+    // hold the whole run clear to the final node and no follower can enter
+    // behind us. The off-graph park leg is one-way, which IS a safe stop, so
+    // the locker stops walking there and a follower can trail us instead.
+    const last = waypoints[waypoints.length - 1]!;
+    const exits =
+      opts.park && Math.hypot(opts.park.x - last.x, opts.park.y - last.y) > APPROACH_THRESHOLD_M;
+    const points = exits
+      ? [...head, { nodeId: `${OFF_GRAPH_PREFIX}park-${opts.park!.id}`, x: opts.park!.x, y: opts.park!.y }]
+      : head;
+    return this.lockedDispatch(agvId, points, { exits: Boolean(exits) });
   }
 
   /**
@@ -198,7 +216,11 @@ export class Fleet {
     });
   }
 
-  private lockedDispatch(agvId: AgvId, waypoints: FleetWaypoint[]): Promise<void> {
+  private lockedDispatch(
+    agvId: AgvId,
+    waypoints: FleetWaypoint[],
+    opts: { exits?: boolean } = {},
+  ): Promise<void> {
     const serial = agvId.serialNumber ?? "unknown";
     const orderId = `fleet-order-${dispatchCounter++}`;
     const { order } = buildIncrementalOrder(orderId, waypoints);
@@ -250,8 +272,10 @@ export class Fleet {
         },
         onOrderProcessed: (error: unknown, _cancelled: boolean, active: boolean) => {
           if (active) return;
-          // Keep holding the node we sit on; parking clears explicitly.
-          granting.clearAllExceptLastPathLocks();
+          // Ended off-graph: we hold nothing on the map. Otherwise keep the
+          // node we sit on, so nobody routes through us while we idle.
+          if (opts.exits) locker.clearAllLocks();
+          else granting.clearAllExceptLastPathLocks();
           this.emit();
           this.activeOrders.delete(serial);
           this.emitOrders();

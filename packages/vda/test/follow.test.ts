@@ -91,4 +91,54 @@ describe("shared loop following", () => {
       await master.stop();
     }
   }, 150_000);
+
+  test("declaring the park exit lets the follower enter while the leader runs", async () => {
+    const locks = buildLocks(site);
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+
+    const r1 = { manufacturer: "RobotCompany", serialNumber: "exit-1" };
+    const r2 = { manufacturer: "RobotCompany", serialNumber: "exit-2" };
+    const c1 = await startAgv(hub, r1, 0, 0);
+    const c2 = await startAgv(hub, r2, 0, 0);
+    const fleet = new Fleet(master, locks);
+
+    const owns = (who: string) =>
+      locks
+        .snapshot()
+        .nodeLocks.filter((n) => n.owners.includes(who))
+        .map((n) => n.id);
+
+    try {
+      // Both tours end off-graph at their own parking spot, declared up front.
+      let leaderDone = false;
+      const p1 = fleet
+        .dispatch(r1, tour, { park: { id: "p1", x: 4, y: 3 } })
+        .finally(() => (leaderDone = true));
+      await new Promise((r) => setTimeout(r, 1000));
+      const p2 = fleet.dispatch(r2, tour, { park: { id: "p2", x: 4, y: 1 } });
+
+      // The follower must take a graph node WHILE the leader is still driving.
+      let entered: string[] = [];
+      let enteredWhileLeaderRan = false;
+      for (let i = 0; i < 200 && entered.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        entered = owns("exit-2");
+        if (entered.length > 0 && !leaderDone) enteredWhileLeaderRan = true;
+      }
+      expect(entered.length).toBeGreaterThan(0);
+      expect(enteredWhileLeaderRan).toBe(true);
+
+      await Promise.all([p1, p2]);
+      // Both ended off-graph, so neither still holds any node.
+      expect(owns("exit-1")).toEqual([]);
+      expect(owns("exit-2")).toEqual([]);
+    } finally {
+      await c1.stop();
+      await c2.stop();
+      await master.stop();
+    }
+  }, 150_000);
 });
