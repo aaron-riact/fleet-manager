@@ -2,14 +2,16 @@
   "name": "fleet-manager",
   "version": "0.1.0",
   "private": true,
-  "description": "Modular VDA5050 fleet manager — Node/Bun server and serverless browser demo",
+  "description": "Modular VDA5050 fleet manager \u2014 Node/Bun server and serverless browser demo",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "build": "bun run --filter './packages/*' build",
     "test": "bun test packages/",
-    "typecheck": "bun run --filter './packages/*' typecheck"
+    "typecheck": "bun run --filter './packages/*' typecheck",
+    "graferse:local": "node scripts/graferse-source.mjs local",
+    "graferse:npm": "node scripts/graferse-source.mjs npm"
   },
   "devDependencies": {
     "bun-types": "^1.4.2",
