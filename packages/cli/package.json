@@ -8,10 +8,14 @@
     "fleet": "./src/index.ts"
   },
   "dependencies": {
-    "@fleet-manager/core": "workspace:*"
+    "@fleet-manager/core": "workspace:*",
+    "vda-5050-lib": "^1.7.2"
   },
   "scripts": {
     "build": "echo 'cli: stub (phase 3)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "aedes": "^1.1.3"
   }
 }
