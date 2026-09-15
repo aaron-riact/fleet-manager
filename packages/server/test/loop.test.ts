@@ -8,6 +8,40 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+class StreamReader {
+  private buf = "";
+  private decoder = new TextDecoder();
+  private constructor(private readonly reader: ReadableStreamDefaultReader<Uint8Array>) {}
+
+  static async open(url: string): Promise<StreamReader> {
+    const res = await fetch(url);
+    if (res.status !== 200) throw new Error(`stream ${url} -> ${res.status}`);
+    return new StreamReader(res.body!.getReader());
+  }
+
+  async next(timeoutMs = 15_000): Promise<unknown> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const idx = this.buf.indexOf("\n\n");
+      if (idx >= 0) {
+        const frame = this.buf.slice(0, idx);
+        this.buf = this.buf.slice(idx + 2);
+        const match = /^data: (.*)$/s.exec(frame);
+        if (match) return JSON.parse(match[1]!);
+        continue;
+      }
+      if (Date.now() > deadline) throw new Error("timed out waiting for SSE frame");
+      const { done, value } = await this.reader.read();
+      if (done) throw new Error("stream closed");
+      this.buf += this.decoder.decode(value, { stream: true });
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.reader.cancel();
+  }
+}
+
 describe("full loop over MQTT", () => {
   test("spawned robot traverses a dispatched tour", async () => {
     const broker = await Aedes.createBroker();
@@ -34,7 +68,7 @@ describe("full loop over MQTT", () => {
         links: [{ source: "west", destination: "east", bidirectional: true }],
       }),
     );
-    const { port, stop } = await serve({
+    const { port, contexts, stop } = await serve({
       port: 0,
       usersFile: file,
       sitesDir,
@@ -77,32 +111,12 @@ describe("full loop over MQTT", () => {
         })
       ).json();
 
-      // open the stream first: the grant push fires during dispatch
-      const stream = await fetch(`${base}/api/sites/coalescent/locks/stream?token=${token}`);
-      const reader = stream.body!.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      async function nextFrame(timeoutMs = 30_000): Promise<{
-        nodeLocks: Array<{ id: string; owners: string[] }>;
-      }> {
-        const deadline = Date.now() + timeoutMs;
-        for (;;) {
-          const idx = buf.indexOf("\n\n");
-          if (idx >= 0) {
-            const frame = buf.slice(0, idx);
-            buf = buf.slice(idx + 2);
-            const match = /^data: (.*)$/s.exec(frame);
-            if (match) return JSON.parse(match[1]!);
-            continue;
-          }
-          if (Date.now() > deadline) throw new Error("timed out waiting for SSE frame");
-          const { done, value } = await reader.read();
-          if (done) throw new Error("stream closed");
-          buf += decoder.decode(value, { stream: true });
-        }
-      }
+      // subscribe before dispatching: grants and completion both push
+      const locks = await StreamReader.open(`${base}/api/sites/coalescent/locks/stream?token=${token}`);
+      const orders = await StreamReader.open(`${base}/api/sites/coalescent/orders/stream?token=${token}`);
       try {
-        const baseline = await nextFrame();
+        type Locks = { nodeLocks: Array<{ id: string; owners: string[] }> };
+        const baseline = (await locks.next()) as Locks;
         expect(baseline.nodeLocks.find((n) => n.id === "west")?.owners).toEqual([]);
 
         const dispatch = await post(
@@ -118,11 +132,31 @@ describe("full loop over MQTT", () => {
         );
         expect(dispatch.status).toBe(200);
 
-        // the grant push names the robot; the tour then drives over MQTT
-        const pushed = await nextFrame();
-        expect(pushed.nodeLocks.find((n) => n.id === "west")?.owners).toEqual(["loop-1"]);
+        // grant push names the robot…
+        for (;;) {
+          const frame = (await locks.next(15_000)) as Locks;
+          if (frame.nodeLocks.some((n) => n.owners.includes("loop-1"))) break;
+        }
+        expect(
+          contexts.get("coalescent")!.locks.snapshot().nodeLocks.find((n) => n.id === "west")?.owners,
+        ).toEqual(["loop-1"]);
+
+        // …and completion empties the orders feed
+        let sighted = false;
+        const deadline = Date.now() + 45_000;
+        for (;;) {
+          const frame = (await orders.next(15_000)) as unknown[];
+          if (!Array.isArray(frame)) continue;
+          if (frame.length > 0) {
+            sighted = true;
+            continue;
+          }
+          if (sighted) break;
+          if (Date.now() > deadline) throw new Error("tour did not complete in time");
+        }
       } finally {
-        await reader.cancel();
+        await locks.close();
+        await orders.close();
       }
     } finally {
       await robot.stop();
@@ -134,5 +168,5 @@ describe("full loop over MQTT", () => {
       });
       broker.close();
     }
-  }, 60_000);
+  }, 90_000);
 });
