@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
-import { buildLocks } from "@fleet-manager/core";
-import type { Site } from "@fleet-manager/core";
+import { bootSiteFleet } from "@fleet-manager/vda";
+import type { ActiveOrder, SiteFleet } from "@fleet-manager/vda";
+import type { LockSnapshot, Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
 import { Auth } from "./auth.js";
@@ -27,10 +28,34 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function sse(payload: unknown): Response {
-  const frame = `data: ${JSON.stringify(payload)}\n\n`;
-  return new Response(frame, {
-    status: 200,
+function liveStream<T>(initial: T, subscribe: (send: (value: T) => void) => () => void): Response {
+  let cleanup: (() => void) | undefined;
+  const teardown = () => {
+    cleanup?.();
+    cleanup = undefined;
+  };
+  const stream = new ReadableStream<string>({
+    start(controller) {
+      const send = (value: T) => {
+        try {
+          controller.enqueue(`data: ${JSON.stringify(value)}\n\n`);
+        } catch {
+          // Consumer gone and cancel() never fired. Drop the sink here or
+          // it stays in the fan-out set for the life of the process.
+          teardown();
+        }
+      };
+      // Subscribe before the baseline so a push that lands between the two
+      // cannot be missed; nothing can run in between, but the order is the
+      // one that stays correct if a send ever becomes async.
+      cleanup = subscribe(send);
+      send(initial);
+    },
+    cancel() {
+      teardown();
+    },
+  });
+  return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -40,19 +65,50 @@ function sse(payload: unknown): Response {
   });
 }
 
+function fanOut<T>(sinks: Set<(value: T) => void>, send: (value: T) => void): () => void {
+  sinks.add(send);
+  return () => {
+    sinks.delete(send);
+  };
+}
+
+/** Live per-site fleet: locks, dispatcher, and stream fan-out. */
+export interface SiteContext extends SiteFleet {
+  lockSubs: Set<(snapshot: LockSnapshot) => void>;
+  orderSubs: Set<(orders: ActiveOrder[]) => void>;
+}
+
+export async function buildSiteContexts(sites: Map<string, Site>): Promise<Map<string, SiteContext>> {
+  const contexts = new Map<string, SiteContext>();
+  for (const [name, site] of sites) {
+    const lockSubs = new Set<(snapshot: LockSnapshot) => void>();
+    const orderSubs = new Set<(orders: ActiveOrder[]) => void>();
+    const fleet = await bootSiteFleet(site, name, {
+      onLocks: (snapshot) => {
+        for (const send of [...lockSubs]) send(snapshot);
+      },
+      onOrders: (orders) => {
+        for (const send of [...orderSubs]) send(orders);
+      },
+    });
+    contexts.set(name, { ...fleet, lockSubs, orderSubs });
+  }
+  return contexts;
+}
+
 function siteGuard(
-  sites: ReturnType<typeof loadSites>,
+  contexts: Map<string, SiteContext>,
   me: { sites: string[] },
   name: string,
 ): Site {
-  const site = sites.get(name);
-  if (!site) throw Object.assign(new Error("unknown site"), { status: 404 });
+  const ctx = contexts.get(name);
+  if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
   if (!me.sites.includes(name)) throw Object.assign(new Error("forbidden site"), { status: 403 });
-  return site;
+  return ctx.site;
 }
 
 /** Build the API without listening (exported for Eden Treaty typing). */
-export function buildApp(auth: Auth, sites: Map<string, Site>) {
+export function buildApp(auth: Auth, contexts: Map<string, SiteContext>) {
   return new Elysia()
     .onError(({ error, set }) => {
       const status = (error as { status?: number }).status ?? 401;
@@ -90,7 +146,7 @@ export function buildApp(auth: Auth, sites: Map<string, Site>) {
     .get("/api/sites", ({ headers }) => ({ sites: auth.me(bearerFromHeaders(headers)).sites }))
     .get("/api/sites/:name/map", ({ headers, params }) => {
       const me = auth.me(bearerFromHeaders(headers));
-      return siteGuard(sites, me, decodeURIComponent(params.name));
+      return siteGuard(contexts, me, decodeURIComponent(params.name));
     })
     .get("/api/sites/:name/:stream/stream", ({ headers, params, query }) => {
       // EventSource cannot send headers: query ?token= or Bearer.
@@ -106,15 +162,16 @@ export function buildApp(auth: Auth, sites: Map<string, Site>) {
       } catch {
         throw Object.assign(new Error("invalid session"), { status: 401 });
       }
-      const site = sites.get(decodeURIComponent(params.name));
-      if (!site) throw Object.assign(new Error("unknown site"), { status: 404 });
-      if (!me.sites.includes(site.name))
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
         throw Object.assign(new Error("forbidden site"), { status: 403 });
-      // Baseline frame now; continuous push once the server runs a Fleet
-      // (demo already proves the feed shape).
-      if (params.stream === "locks") return sse(buildLocks(site).snapshot());
-      if (params.stream === "orders") return sse([]);
-      if (params.stream === "poses") return sse({ type: "poses", site: site.name, poses: [] });
+      if (params.stream === "locks")
+        return liveStream(ctx.locks.snapshot(), (send) => fanOut(ctx.lockSubs, send));
+      if (params.stream === "orders")
+        return liveStream(ctx.fleet.activeOrderList(), (send) => fanOut(ctx.orderSubs, send));
+      if (params.stream === "poses")
+        return liveStream({ type: "poses", site: ctx.site.name, poses: [] }, () => () => {});
       throw Object.assign(new Error("unknown stream"), { status: 404 });
     })
     .post("/api/logout", ({ headers }) => {
@@ -128,10 +185,15 @@ export type FleetApi = ReturnType<typeof buildApp>;
 /** Boot the API. Returns the Bun server handle (call .stop() in tests). */
 export async function serve(options: ServeOptions) {
   const auth = new Auth(await loadUsersFile(options.usersFile));
-  const sites = loadSites(options.sitesDir ?? "data/seed/sites");
-  const app = buildApp(auth, sites);
+  const contexts = await buildSiteContexts(loadSites(options.sitesDir ?? "data/seed/sites"));
+  const app = buildApp(auth, contexts);
   app.listen(options.port ?? 4000);
 
   const server = app.server!;
-  return { server, auth, port: server.port };
+  /** Stop the HTTP server and every site fleet it booted. */
+  const stop = async () => {
+    server.stop(true);
+    for (const ctx of contexts.values()) await ctx.stop();
+  };
+  return { server, auth, port: server.port, contexts, stop };
 }

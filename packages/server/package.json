@@ -1,11 +1,12 @@
 {
   "name": "@fleet-manager/server",
   "version": "0.1.0",
-  "description": "Bun.serve API: REST + tRPC, SSE streams (phase 3)",
+  "description": "Elysia REST + live SSE streams",
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
     "@fleet-manager/core": "workspace:*",
+    "@fleet-manager/vda": "workspace:*",
     "elysia": "^1.4.30"
   },
   "scripts": {

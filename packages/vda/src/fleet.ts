@@ -129,6 +129,11 @@ export class Fleet {
     }
   }
 
+  /** Orders in flight right now (stream baselines, status views). */
+  activeOrderList(): ActiveOrder[] {
+    return [...this.activeOrders.values()];
+  }
+
   async dispatch(
     agvId: AgvId,
     waypoints: FleetWaypoint[],
