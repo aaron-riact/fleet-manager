@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Aedes } from "aedes";
-import { createServer } from "node:net";
-import { createVerifier, serializeUsersFile } from "@fleet-manager/core";
-import { serve } from "../src/serve.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createVerifier, serializeUsersFile } from "@fleet-manager/core";
 import { loadSites } from "../src/sites.js";
-import { buildSiteContexts } from "../src/serve.js";
+import { buildSiteContexts, serve } from "../src/serve.js";
 
 const site = { name: "s1", nodes: [{ id: "a", x: 0, y: 0 }], links: [] };
 
@@ -49,9 +48,17 @@ describe("loadSites", () => {
     writeFileSync(join(sitesDir, "s1.json"), JSON.stringify(site));
 
     // serve() drops what it is not asked to forward; this pins that it does.
-    const { stop, contexts } = await serve({ port: 0, usersFile, sitesDir, brokerUrl });
+    const { stop, contexts } = await serve({
+      port: 0,
+      usersFile,
+      sitesDir,
+      brokerUrl,
+      interfaceName: "test-iface",
+    });
     try {
-      expect(contexts.get("s1")!.master.clientOptions.transport.brokerUrl).toBe(brokerUrl);
+      const options = contexts.get("s1")!.master.clientOptions;
+      expect(options.transport.brokerUrl).toBe(brokerUrl);
+      expect(options.interfaceName).toBe("test-iface");
     } finally {
       await stop();
       await new Promise<void>((resolve, reject) => {
