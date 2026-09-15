@@ -5,6 +5,8 @@ import { createHttpBackend } from "./backend";
 import type { Backend, LivePose, OrderView } from "./backend";
 import type { LockSnapshot } from "@fleet-manager/core";
 import { FleetMap } from "./FleetMap";
+import { RobotCards, buildCards } from "./RobotCards";
+import { theme } from "./theme";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
 
@@ -13,21 +15,20 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
 const page: React.CSSProperties = {
   minHeight: "100vh",
   margin: 0,
-  background: "#0b0e14",
-  color: "#e6edf3",
-  fontFamily: "system-ui, sans-serif",
+  background: `radial-gradient(1200px 600px at 70% -10%, #12233d 0%, ${theme.bg} 55%)`,
+  backgroundColor: theme.bg,
+  color: theme.text,
+  fontFamily: theme.font,
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
 };
 
-const card: React.CSSProperties = {
-  marginTop: "16vh",
-  padding: "2rem",
-  borderRadius: 12,
-  background: "#11161f",
-  border: "1px solid #232b38",
-  minWidth: 320,
+const glass: React.CSSProperties = {
+  background: theme.glass,
+  border: `1px solid ${theme.borderSoft}`,
+  borderRadius: theme.radius,
+  backdropFilter: "blur(10px)",
 };
 
 const input: React.CSSProperties = {
@@ -35,21 +36,23 @@ const input: React.CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
   margin: "0.5rem 0",
-  padding: "0.6rem",
-  borderRadius: 8,
-  border: "1px solid #232b38",
-  background: "#0b0e14",
+  padding: "0.65rem 0.8rem",
+  borderRadius: 10,
+  border: `1px solid ${theme.border}`,
+  background: theme.bg,
   color: "inherit",
+  fontSize: "0.95rem",
 };
 
 const button: React.CSSProperties = {
   width: "100%",
   marginTop: "0.75rem",
-  padding: "0.6rem",
-  borderRadius: 8,
+  padding: "0.65rem",
+  borderRadius: 10,
   border: "none",
-  background: "#2f81f7",
+  background: `linear-gradient(180deg, #3f8cff, ${theme.accent})`,
   color: "#fff",
+  fontWeight: 600,
   cursor: "pointer",
 };
 
@@ -73,11 +76,26 @@ function LoginForm({ onLogin }: { onLogin: (s: LoginSession) => void }) {
   }
 
   return (
-    <form style={card} onSubmit={submit}>
-      <h1 style={{ marginTop: 0 }}>Fleet Manager</h1>
+    <form
+      style={{
+        ...glass,
+        marginTop: "14vh",
+        padding: "2.2rem",
+        minWidth: 340,
+        boxShadow: "0 24px 80px rgba(47, 129, 247, 0.18)",
+      }}
+      onSubmit={submit}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+        <span style={{ fontSize: "1.6rem", color: theme.accent }}>⬢</span>
+        <h1 style={{ margin: 0, fontSize: "1.35rem", letterSpacing: "-0.01em" }}>Fleet Manager</h1>
+      </div>
+      <p style={{ color: theme.textDim, fontSize: "0.85rem", margin: "0.5rem 0 1rem" }}>
+        Secure sign-in for fleet operators
+      </p>
       <input style={input} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
       <input style={input} placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
-      {error && <p style={{ color: "#f85149" }}>{error}</p>}
+      {error && <p style={{ color: theme.bad }}>{error}</p>}
       <button style={button} type="submit" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
       </button>
@@ -134,14 +152,64 @@ export function Shell({
     };
   }, [backend]);
 
+  const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
+  const live = site !== null && error === null;
+
   return (
-    <div style={{ width: "100%", maxWidth: 960, padding: "1rem" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <strong>Fleet Manager</strong>
-        <span>
-          {session.username} · {session.sites.join(", ")}{" "}
+    <div style={{ width: "100%", maxWidth: 1280, padding: "1rem 1.25rem 2rem" }}>
+      <header
+        style={{
+          ...glass,
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          padding: "0.6rem 1rem",
+          position: "sticky",
+          top: "0.75rem",
+          zIndex: 10,
+        }}
+      >
+        <span style={{ fontSize: "1.2rem", color: theme.accent }}>⬢</span>
+        <strong style={{ letterSpacing: "-0.01em" }}>Fleet Manager</strong>
+        {site && (
+          <span
+            style={{
+              fontSize: "0.75rem",
+              color: theme.textDim,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 999,
+              padding: "0.15rem 0.7rem",
+            }}
+          >
+            {site.name}
+          </span>
+        )}
+        <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.75rem", color: theme.textDim }}>
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: live ? theme.ok : theme.warn,
+              boxShadow: live ? `0 0 8px ${theme.ok}` : "none",
+            }}
+          />
+          {live ? "live" : "connecting…"}
+        </span>
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.6rem" }}>
+          <span style={{ color: theme.textDim, fontSize: "0.85rem" }}>{session.username}</span>
           <button
-            style={{ ...button, width: "auto", marginTop: 0, padding: "0.4rem 0.8rem" }}
+            style={{
+              width: "auto",
+              marginTop: 0,
+              padding: "0.4rem 0.9rem",
+              borderRadius: 999,
+              border: `1px solid ${theme.border}`,
+              background: "transparent",
+              color: theme.text,
+              cursor: "pointer",
+              fontSize: "0.8rem",
+            }}
             onClick={onLogout}
           >
             Sign out
@@ -149,26 +217,46 @@ export function Shell({
         </span>
       </header>
       <main style={{ marginTop: "1rem" }}>
-        {error && <p style={{ color: "#f85149" }}>{error}</p>}
-        {!error && !site && <p style={{ color: "#8b949e" }}>Loading map…</p>}
+        {error && (
+          <p style={{ ...glass, padding: "0.8rem 1rem", color: theme.bad }}>
+            {error}
+          </p>
+        )}
+        {!error && !site && <p style={{ color: theme.textDim }}>Loading map…</p>}
         {site && (
-          <>
-            <h2 style={{ fontSize: "1rem", color: "#8b949e" }}>{site.name}</h2>
-            <FleetMap
-              site={site}
-              locks={locks}
-              parking={site.parking ?? []}
-              waits={orders.flatMap((o) => {
-                const next = o.nodes.find((n) => !n.released);
-                return next ? [{ serialNumber: o.serial, nodeId: next.nodeId }] : [];
-              })}
-              robots={Object.values(poses).map((p) => ({
-                serialNumber: p.serialNumber,
-                x: p.x,
-                y: p.y,
-              }))}
-            />
-          </>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) 320px",
+              gap: "1rem",
+              alignItems: "start",
+            }}
+          >
+            <div style={{ ...glass, padding: "0.75rem" }}>
+              <FleetMap
+                site={site}
+                locks={locks}
+                parking={site.parking ?? []}
+                waits={orders.flatMap((o) => {
+                  const next = o.nodes.find((n) => !n.released);
+                  return next ? [{ serialNumber: o.serial, nodeId: next.nodeId }] : [];
+                })}
+                robots={Object.values(poses).map((p) => ({
+                  serialNumber: p.serialNumber,
+                  x: p.x,
+                  y: p.y,
+                }))}
+              />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <section>
+                <h2 style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: theme.textFaint, margin: "0 0 0.5rem" }}>
+                  Robots · {cards.length}
+                </h2>
+                <RobotCards cards={cards} />
+              </section>
+            </div>
+          </div>
         )}
         {extraPanel}
       </main>
