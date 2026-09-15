@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Topic } from "vda-5050-lib";
 import { bootFleet } from "../src/fleet.js";
-import { watchRobots } from "../src/robots.js";
+import { watchRobots } from "@fleet-manager/vda";
 
 describe("runtime robot management", () => {
   test("spawned robot appears on the bus; dropped robot leaves", async () => {
