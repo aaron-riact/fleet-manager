@@ -8,6 +8,33 @@ import { Auth } from "./auth.js";
 import { MemorySessionStore } from "./sessions.js";
 import type { SessionStore } from "./sessions.js";
 import { SqliteSessionStore } from "./sqlite.js";
+import { RateLimiter } from "./rateLimit.js";
+
+/**
+ * Rate-limit bucket for a request. X-Forwarded-For is set by the client
+ * unless a trusted proxy overwrites it, so believing it unconditionally
+ * hands every caller an unlimited supply of fresh buckets — which is the
+ * whole limit. Off by default; turn it on only behind a proxy that
+ * rewrites the header (TRUST_PROXY_HEADER=1).
+ */
+function clientKey(
+  headers: Record<string, string | undefined>,
+  peer: string | undefined,
+  trustProxyHeader: boolean,
+): string {
+  if (trustProxyHeader) {
+    const forwarded = headers["x-forwarded-for"] ?? headers["x-real-ip"];
+    const first = forwarded?.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  // No peer address available: one shared bucket, which throttles harder
+  // rather than not at all.
+  return peer ?? "direct";
+}
+
+function limited(limiter: RateLimiter, key: string): void {
+  if (!limiter.check(key)) throw Object.assign(new Error("too many requests"), { status: 429 });
+}
 
 export interface ServeOptions {
   port?: number;
@@ -22,6 +49,13 @@ export interface ServeOptions {
   /** SQLite sessions file. Absent: in-memory sessions (tests, ephemeral dev). */
   sessionsFile?: string;
   sessionTtlMs?: number;
+  /** Per-minute per-IP caps for the CPU-heavy SRP endpoints. */
+  loginStartPerMin?: number;
+  loginFinishPerMin?: number;
+  /** Global cap on outstanding challenges (spray protection). */
+  maxPendingChallenges?: number;
+  /** Trust X-Forwarded-For / X-Real-IP. Only behind a proxy that sets them. */
+  trustProxyHeader?: boolean;
 }
 
 function bearerFromHeaders(headers: Record<string, string | undefined>): string {
@@ -177,9 +211,17 @@ function siteGuard(
 export function buildApp(
   auth: Auth,
   contexts: Map<string, SiteContext>,
-  options: { defaultManufacturer?: string } = {},
+  options: {
+    defaultManufacturer?: string;
+    loginStartPerMin?: number;
+    loginFinishPerMin?: number;
+    trustProxyHeader?: boolean;
+  } = {},
 ) {
   const defaultManufacturer = options.defaultManufacturer ?? "RobotCompany";
+  const trustProxyHeader = options.trustProxyHeader ?? false;
+  const startLimiter = new RateLimiter({ limit: options.loginStartPerMin ?? 30, windowMs: 60_000 });
+  const finishLimiter = new RateLimiter({ limit: options.loginFinishPerMin ?? 60, windowMs: 60_000 });
   return new Elysia()
     .onError(({ error, set }) => {
       const status = (error as { status?: number }).status ?? 401;
@@ -199,13 +241,15 @@ export function buildApp(
       return null;
     })
     .get("/api/health", () => ({ ok: true }))
-    .post("/api/login/start", ({ body }) => {
+    .post("/api/login/start", ({ body, headers, server, request }) => {
+      limited(startLimiter, clientKey(headers, server?.requestIP(request)?.address, trustProxyHeader));
       const username = (body as { username?: unknown } | null)?.username;
       if (typeof username !== "string")
         throw Object.assign(new Error("username required"), { status: 400 });
       return auth.start(username);
     })
-    .post("/api/login/finish", ({ body }) => {
+    .post("/api/login/finish", ({ body, headers, server, request }) => {
+      limited(finishLimiter, clientKey(headers, server?.requestIP(request)?.address, trustProxyHeader));
       const input = (body ?? {}) as Record<string, unknown>;
       for (const key of ["serverEphemeral", "clientEphemeral", "proof"]) {
         if (typeof input[key] !== "string") {
@@ -306,6 +350,7 @@ export async function serve(options: ServeOptions) {
   const auth = new Auth(await loadUsersFile(options.usersFile), {
     store,
     sessionTtlMs: options.sessionTtlMs,
+    maxPendingChallenges: options.maxPendingChallenges,
   });
   const purged = await auth.purge();
   if (purged.challenges > 0 || purged.sessions > 0) {
@@ -315,7 +360,12 @@ export async function serve(options: ServeOptions) {
     brokerUrl: options.brokerUrl,
     interfaceName: options.interfaceName,
   });
-  const app = buildApp(auth, contexts, { defaultManufacturer: options.defaultManufacturer });
+  const app = buildApp(auth, contexts, {
+    defaultManufacturer: options.defaultManufacturer,
+    loginStartPerMin: options.loginStartPerMin,
+    loginFinishPerMin: options.loginFinishPerMin,
+    trustProxyHeader: options.trustProxyHeader,
+  });
   app.listen(options.port ?? 4000);
 
   const server = app.server!;

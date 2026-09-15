@@ -19,6 +19,7 @@ export interface Session {
 export interface AuthOptions {
   pendingTtlMs?: number;
   sessionTtlMs?: number;
+  maxPendingChallenges?: number;
   now?: () => number;
   newToken?: () => string;
   store?: SessionStore;
@@ -26,6 +27,7 @@ export interface AuthOptions {
 
 const DEFAULT_PENDING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const DEFAULT_MAX_PENDING = 1000;
 
 /**
  * SRP login flow over REST. Pure logic (no I/O besides the injected
@@ -35,6 +37,7 @@ const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 export class Auth {
   private readonly pendingTtlMs: number;
   private readonly sessionTtlMs: number;
+  private readonly maxPendingChallenges: number;
   private readonly now: () => number;
   private readonly newToken: () => string;
   private readonly store: SessionStore;
@@ -45,6 +48,7 @@ export class Auth {
   ) {
     this.pendingTtlMs = options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
     this.sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+    this.maxPendingChallenges = options.maxPendingChallenges ?? DEFAULT_MAX_PENDING;
     this.now = options.now ?? Date.now;
     this.newToken = options.newToken ?? (() => globalThis.crypto.randomUUID());
     this.store = options.store ?? new MemorySessionStore();
@@ -56,6 +60,16 @@ export class Auth {
     // Same shape for unknown users would be nicer (anti-enumeration);
     // for now fail closed and let the API map it to 401.
     if (!user) throw new Error(`unknown user: "${username}"`);
+    // Count only challenges still inside the TTL. Counting expired ones
+    // too meant abandoned logins piled up until every login 429'd, and
+    // only a restart (the one purge) cleared it.
+    const liveSince = this.now() - this.pendingTtlMs;
+    if ((await this.store.countChallenges(liveSince)) >= this.maxPendingChallenges) {
+      await this.store.purgeExpired(this.now(), this.pendingTtlMs, this.sessionTtlMs);
+      if ((await this.store.countChallenges(liveSince)) >= this.maxPendingChallenges) {
+        throw Object.assign(new Error("too many pending logins"), { status: 429 });
+      }
+    }
     const ephemeral = await srpServer.generateEphemeral(user.verifier);
     await this.store.saveChallenge(ephemeral.public, {
       username,

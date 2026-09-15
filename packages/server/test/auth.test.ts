@@ -88,4 +88,31 @@ describe("Auth", () => {
     expect(await auth.purge()).toEqual({ challenges: 1, sessions: 1 });
     await expect(auth.me(result.token)).rejects.toThrow(/invalid session/);
   });
+
+  test("challenge spray is capped", async () => {
+    const { users } = await setup();
+    const auth = new Auth(users, { maxPendingChallenges: 1 });
+    await auth.start("alice@cmr");
+    await expect(auth.start("alice@cmr")).rejects.toThrow(/too many pending/);
+  });
+
+  test("expired challenges do not hold the cap shut", async () => {
+    const { users } = await setup();
+    let now = 1_000;
+    const auth = new Auth(users, {
+      now: () => now,
+      pendingTtlMs: 60_000,
+      maxPendingChallenges: 2,
+    });
+    // two abandoned logins fill the cap
+    await auth.start("alice@cmr");
+    await auth.start("alice@cmr");
+    await expect(auth.start("alice@cmr")).rejects.toThrow(/too many pending/);
+    // once they expire the cap must free up, without a restart — the
+    // boot purge was the only thing clearing them before
+    now += 61_000;
+    await auth.start("alice@cmr");
+    const result = await login(auth, "alice@cmr", "s3cret");
+    expect((await auth.me(result.token)).username).toBe("alice@cmr");
+  });
 });

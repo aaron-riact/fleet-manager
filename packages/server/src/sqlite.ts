@@ -76,6 +76,13 @@ export class SqliteSessionStore implements SessionStore {
     return { username: row.username, secret: row.secret, createdAt: row.createdAt };
   }
 
+  async countChallenges(since: number): Promise<number> {
+    const row = this.db
+      .query("SELECT COUNT(*) AS n FROM challenges WHERE createdAt >= ?")
+      .get(since) as { n: number };
+    return row.n;
+  }
+
   async purgeExpired(
     now: number,
     pendingTtlMs: number,

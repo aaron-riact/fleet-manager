@@ -7,7 +7,9 @@ import { createVerifier, serializeUsersFile, srpClient } from "@fleet-manager/co
 import { attachMemoryTransport } from "@fleet-manager/vda";
 import { serve } from "../src/serve.js";
 
-async function boot() {
+async function boot(
+  overrides: { loginStartPerMin?: number; trustProxyHeader?: boolean } = {},
+) {
   const record = await createVerifier("http@cmr", "s3cret");
   const dir = mkdtempSync(join(tmpdir(), "fleet-srv-"));
   const file = join(dir, "users.json");
@@ -22,7 +24,12 @@ async function boot() {
     join(sitesDir, "other.json"),
     JSON.stringify({ name: "other", nodes: [{ id: "b", x: 1, y: 1 }], links: [] }),
   );
-  const { server, port, contexts, stop } = await serve({ port: 0, usersFile: file, sitesDir });
+  const { server, port, contexts, stop } = await serve({
+    port: 0,
+    usersFile: file,
+    sitesDir,
+    ...overrides,
+  });
   const base = `http://localhost:${port}`;
   const post = async (path: string, body: unknown) =>
     fetch(`${base}${path}`, {
@@ -81,6 +88,57 @@ describe("HTTP API", () => {
       expect((await post("/api/login/start", { username: "nobody@cmr" })).status).toBe(401);
       expect((await post("/api/login/start", {})).status).toBe(400);
       expect((await post("/api/login/finish", { proof: "x" })).status).toBe(400);
+    } finally {
+      await stop();
+    }
+  });
+
+  test("login/start rate limiting returns 429", async () => {
+    const { post, server, stop } = await boot({ loginStartPerMin: 2 });
+    try {
+      expect((await post("/api/login/start", { username: "nobody@cmr" })).status).toBe(401);
+      expect((await post("/api/login/start", { username: "nobody@cmr" })).status).toBe(401);
+      const limited = await post("/api/login/start", { username: "nobody@cmr" });
+      expect(limited.status).toBe(429);
+      expect(await limited.json()).toMatchObject({ error: "too many requests" });
+    } finally {
+      await stop();
+    }
+  });
+
+  test("a spoofed X-Forwarded-For does not buy fresh rate-limit buckets", async () => {
+    const { base, stop } = await boot({ loginStartPerMin: 2 });
+    const spoofed = (ip: string) =>
+      fetch(`${base}/api/login/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+        body: JSON.stringify({ username: "nobody@cmr" }),
+      });
+    try {
+      // a different claimed address every time; without a trusted proxy
+      // the header is just client input and must not be believed
+      expect((await spoofed("10.0.0.1")).status).toBe(401);
+      expect((await spoofed("10.0.0.2")).status).toBe(401);
+      expect((await spoofed("10.0.0.3")).status).toBe(429);
+    } finally {
+      await stop();
+    }
+  });
+
+  test("X-Forwarded-For is honoured once a proxy is trusted", async () => {
+    const { base, stop } = await boot({ loginStartPerMin: 2, trustProxyHeader: true });
+    const viaProxy = (ip: string) =>
+      fetch(`${base}/api/login/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Forwarded-For": ip },
+        body: JSON.stringify({ username: "nobody@cmr" }),
+      });
+    try {
+      expect((await viaProxy("10.0.0.1")).status).toBe(401);
+      expect((await viaProxy("10.0.0.1")).status).toBe(401);
+      expect((await viaProxy("10.0.0.1")).status).toBe(429);
+      // a genuinely different client still gets its own budget
+      expect((await viaProxy("10.0.0.2")).status).toBe(401);
     } finally {
       await stop();
     }

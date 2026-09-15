@@ -11,6 +11,8 @@ export interface SessionStore {
   saveChallenge(serverEphemeral: string, challenge: PendingChallenge): Promise<void>;
   /** Take (get + delete) a challenge; single-use by construction. */
   takeChallenge(serverEphemeral: string): Promise<PendingChallenge | undefined>;
+  /** Challenges created at or after `since`; expired ones do not count. */
+  countChallenges(since: number): Promise<number>;
   /** Drop expired challenges and sessions. Returns counts removed. */
   purgeExpired(now: number, pendingTtlMs: number, sessionTtlMs: number): Promise<{ challenges: number; sessions: number }>;
   close?(): Promise<void>;
@@ -40,6 +42,14 @@ export class MemorySessionStore implements SessionStore {
     const challenge = this.challenges.get(serverEphemeral);
     this.challenges.delete(serverEphemeral);
     return challenge;
+  }
+
+  async countChallenges(since: number): Promise<number> {
+    let live = 0;
+    for (const challenge of this.challenges.values()) {
+      if (challenge.createdAt >= since) live++;
+    }
+    return live;
   }
 
   async purgeExpired(
