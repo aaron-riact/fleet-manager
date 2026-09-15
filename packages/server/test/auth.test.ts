@@ -23,7 +23,7 @@ describe("Auth", () => {
     const result = await login(auth, "alice@cmr", "s3cret");
     expect(result.username).toBe("alice@cmr");
     expect(result.sites).toEqual(["coalescent"]);
-    expect(auth.me(result.token)).toEqual({ username: "alice@cmr", sites: ["coalescent"] });
+    expect(await auth.me(result.token)).toEqual({ username: "alice@cmr", sites: ["coalescent"] });
   });
 
   test("finish returns the server proof for mutual auth", async () => {
@@ -64,7 +64,28 @@ describe("Auth", () => {
     const { users } = await setup();
     const auth = new Auth(users);
     const result = await login(auth, "alice@cmr", "s3cret");
-    auth.logout(result.token);
-    expect(() => auth.me(result.token)).toThrow(/invalid session/);
+    await auth.logout(result.token);
+    await expect(auth.me(result.token)).rejects.toThrow(/invalid session/);
+  });
+
+  test("sessions expire after sessionTtlMs", async () => {
+    const { users } = await setup();
+    let now = 1_000;
+    const auth = new Auth(users, { now: () => now, sessionTtlMs: 60_000 });
+    const result = await login(auth, "alice@cmr", "s3cret");
+    expect(await auth.me(result.token)).toEqual({ username: "alice@cmr", sites: ["coalescent"] });
+    now += 61_000;
+    await expect(auth.me(result.token)).rejects.toThrow(/expired/);
+  });
+
+  test("purge evicts expired challenges and sessions", async () => {
+    const { users } = await setup();
+    let now = 1_000;
+    const auth = new Auth(users, { now: () => now, pendingTtlMs: 60_000, sessionTtlMs: 60_000 });
+    await auth.start("alice@cmr");
+    const result = await login(auth, "alice@cmr", "s3cret");
+    now += 61_000;
+    expect(await auth.purge()).toEqual({ challenges: 1, sessions: 1 });
+    await expect(auth.me(result.token)).rejects.toThrow(/invalid session/);
   });
 });

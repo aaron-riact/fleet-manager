@@ -1,5 +1,7 @@
 import { srpServer } from "@fleet-manager/core";
 import type { UserRecord } from "@fleet-manager/core";
+import { MemorySessionStore } from "./sessions.js";
+import type { SessionStore } from "./sessions.js";
 
 export interface PendingChallenge {
   username: string;
@@ -16,31 +18,36 @@ export interface Session {
 
 export interface AuthOptions {
   pendingTtlMs?: number;
+  sessionTtlMs?: number;
   now?: () => number;
   newToken?: () => string;
+  store?: SessionStore;
 }
 
 const DEFAULT_PENDING_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 /**
- * SRP login flow over REST. Pure logic (no I/O): the server package
- * wires it to HTTP. Pending challenges live here with a TTL so a
- * second process restart (or a stale tab) fails closed, not open.
+ * SRP login flow over REST. Pure logic (no I/O besides the injected
+ * store): the server package wires it to HTTP. Pending challenges are
+ * single-use with a TTL; sessions expire after sessionTtlMs.
  */
 export class Auth {
-  private readonly pending = new Map<string, PendingChallenge>();
-  private readonly sessions = new Map<string, Session>();
   private readonly pendingTtlMs: number;
+  private readonly sessionTtlMs: number;
   private readonly now: () => number;
   private readonly newToken: () => string;
+  private readonly store: SessionStore;
 
   constructor(
     private readonly users: UserRecord[],
     options: AuthOptions = {},
   ) {
     this.pendingTtlMs = options.pendingTtlMs ?? DEFAULT_PENDING_TTL_MS;
+    this.sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
     this.now = options.now ?? Date.now;
     this.newToken = options.newToken ?? (() => globalThis.crypto.randomUUID());
+    this.store = options.store ?? new MemorySessionStore();
   }
 
   /** Step 1: client sends username, gets salt + server ephemeral. */
@@ -50,7 +57,7 @@ export class Auth {
     // for now fail closed and let the API map it to 401.
     if (!user) throw new Error(`unknown user: "${username}"`);
     const ephemeral = await srpServer.generateEphemeral(user.verifier);
-    this.pending.set(ephemeral.public, {
+    await this.store.saveChallenge(ephemeral.public, {
       username,
       secret: ephemeral.secret,
       createdAt: this.now(),
@@ -64,8 +71,7 @@ export class Auth {
     clientEphemeral: string;
     proof: string;
   }): Promise<{ token: string; username: string; sites: string[]; proof: string }> {
-    const challenge = this.pending.get(input.serverEphemeral);
-    this.pending.delete(input.serverEphemeral);
+    const challenge = await this.store.takeChallenge(input.serverEphemeral);
     if (!challenge || this.now() - challenge.createdAt > this.pendingTtlMs) {
       throw new Error("challenge expired or unknown");
     }
@@ -80,18 +86,27 @@ export class Auth {
       input.proof,
     );
     const token = this.newToken();
-    this.sessions.set(token, { token, username: user.username, sites: user.sites, createdAt: this.now() });
+    await this.store.saveSession({ token, username: user.username, sites: user.sites, createdAt: this.now() });
     return { token, username: user.username, sites: user.sites, proof: session.proof };
   }
 
   /** Validate a Bearer token (GET /api/me, request auth). */
-  me(token: string): Pick<Session, "username" | "sites"> {
-    const session = this.sessions.get(token);
+  async me(token: string): Promise<Pick<Session, "username" | "sites">> {
+    const session = await this.store.getSession(token);
     if (!session) throw new Error("invalid session");
+    if (this.now() - session.createdAt > this.sessionTtlMs) {
+      await this.store.deleteSession(token);
+      throw new Error("session expired");
+    }
     return { username: session.username, sites: session.sites };
   }
 
-  logout(token: string): void {
-    this.sessions.delete(token);
+  async logout(token: string): Promise<void> {
+    await this.store.deleteSession(token);
+  }
+
+  /** Evict expired challenges and sessions (call at boot, then rarely). */
+  async purge(now = this.now()): Promise<{ challenges: number; sessions: number }> {
+    return this.store.purgeExpired(now, this.pendingTtlMs, this.sessionTtlMs);
   }
 }

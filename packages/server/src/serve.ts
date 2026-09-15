@@ -210,13 +210,13 @@ export function buildApp(
         input as { serverEphemeral: string; clientEphemeral: string; proof: string },
       );
     })
-    .get("/api/me", ({ headers }) => auth.me(bearerFromHeaders(headers)))
-    .get("/api/sites", ({ headers }) => ({ sites: auth.me(bearerFromHeaders(headers)).sites }))
-    .get("/api/sites/:name/map", ({ headers, params }) => {
-      const me = auth.me(bearerFromHeaders(headers));
+    .get("/api/me", async ({ headers }) => auth.me(bearerFromHeaders(headers)))
+    .get("/api/sites", async ({ headers }) => ({ sites: (await auth.me(bearerFromHeaders(headers))).sites }))
+    .get("/api/sites/:name/map", async ({ headers, params }) => {
+      const me = await auth.me(bearerFromHeaders(headers));
       return siteGuard(contexts, me, decodeURIComponent(params.name));
     })
-    .get("/api/sites/:name/:stream/stream", ({ headers, params, query }) => {
+    .get("/api/sites/:name/:stream/stream", async ({ headers, params, query }) => {
       // EventSource cannot send headers: query ?token= or Bearer.
       const token =
         typeof query.token === "string" && query.token
@@ -226,7 +226,7 @@ export function buildApp(
       // checking the token lets anyone enumerate site names.
       let me: { username: string; sites: string[] };
       try {
-        me = auth.me(token);
+        me = await auth.me(token);
       } catch {
         throw Object.assign(new Error("invalid session"), { status: 401 });
       }
@@ -242,14 +242,14 @@ export function buildApp(
         return liveStream<RobotPose>(undefined, (send) => fanOut(ctx.poseSubs, send));
       throw Object.assign(new Error("unknown stream"), { status: 404 });
     })
-    .post("/api/logout", ({ headers }) => {
-      auth.logout(bearerFromHeaders(headers));
+    .post("/api/logout", async ({ headers }) => {
+      await auth.logout(bearerFromHeaders(headers));
       return { ok: true };
     })
     .post("/api/sites/:name/orders", async ({ headers, params, body }) => {
       // Authenticate first: a 404 before the token check would let anyone
       // enumerate site names.
-      const me = auth.me(bearerFromHeaders(headers));
+      const me = await auth.me(bearerFromHeaders(headers));
       const ctx = contexts.get(decodeURIComponent(params.name));
       if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
       if (!me.sites.includes(ctx.site.name))

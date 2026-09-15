@@ -26,7 +26,7 @@ describe("authClient", () => {
     const session = await login("http://x", "ui@cmr", "s3cret", stubbedFetch(auth));
     expect(session).toMatchObject({ username: "ui@cmr", sites: ["coalescent"] });
     expect(typeof session.token).toBe("string");
-    expect(auth.me(session.token)).toEqual({ username: "ui@cmr", sites: ["coalescent"] });
+    expect(await auth.me(session.token)).toEqual({ username: "ui@cmr", sites: ["coalescent"] });
   });
 
   test("wrong password fails", async () => {
