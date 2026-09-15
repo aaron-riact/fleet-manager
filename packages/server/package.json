@@ -14,5 +14,8 @@
     "dev": "bun --watch ./src/dev.ts",
     "build": "echo 'server: stub (phase 3)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "aedes": "^1.1.3"
   }
 }

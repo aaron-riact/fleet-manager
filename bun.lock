@@ -57,6 +57,9 @@
         "@fleet-manager/vda": "workspace:*",
         "elysia": "^1.4.30",
       },
+      "devDependencies": {
+        "aedes": "^1.1.3",
+      },
     },
     "packages/transport-memory": {
       "name": "@fleet-manager/transport-memory",

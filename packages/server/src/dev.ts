@@ -5,7 +5,8 @@
  *   bun run serve          from packages/server, or
  *   bun run dev:server     from the repo root
  *
- * Env overrides: PORT (default 4000), USERS_FILE, SITES_DIR.
+ * Env overrides: PORT (default 4000), USERS_FILE, SITES_DIR,
+ * BROKER_URL (real broker; absent: memory bus), INTERFACE_NAME.
  * Defaults resolve from the repo root, so the cwd does not matter.
  */
 import { dirname, join, resolve } from "node:path";
@@ -16,6 +17,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const port = Number(process.env.PORT ?? 4000);
 const usersFile = process.env.USERS_FILE ?? join(root, "data/seed/users.json");
 const sitesDir = process.env.SITES_DIR ?? join(root, "data/seed/sites");
+const brokerUrl = process.env.BROKER_URL;
+const interfaceName = process.env.INTERFACE_NAME;
 
-const { port: actual } = await serve({ port, usersFile, sitesDir });
+const { port: actual } = await serve({ port, usersFile, sitesDir, brokerUrl, interfaceName });
 console.log(`fleet-manager server listening on http://localhost:${actual}`);

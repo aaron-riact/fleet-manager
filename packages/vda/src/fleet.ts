@@ -134,6 +134,11 @@ export class Fleet {
     return [...this.activeOrders.values()];
   }
 
+  /** True while the robot has an order in flight. */
+  isBusy(serialNumber: string): boolean {
+    return this.activeOrders.has(serialNumber);
+  }
+
   async dispatch(
     agvId: AgvId,
     waypoints: FleetWaypoint[],

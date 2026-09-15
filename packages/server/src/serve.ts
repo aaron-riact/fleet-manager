@@ -10,6 +10,12 @@ export interface ServeOptions {
   port?: number;
   usersFile: string;
   sitesDir?: string;
+  /** Real broker URL. Absent: in-process memory bus. */
+  brokerUrl?: string;
+  /** VDA interface name. Defaults to the site name (isolates sites). */
+  interfaceName?: string;
+  /** Manufacturer for dispatch requests that omit one. */
+  defaultManufacturer?: string;
 }
 
 function bearerFromHeaders(headers: Record<string, string | undefined>): string {
@@ -78,19 +84,33 @@ export interface SiteContext extends SiteFleet {
   orderSubs: Set<(orders: ActiveOrder[]) => void>;
 }
 
-export async function buildSiteContexts(sites: Map<string, Site>): Promise<Map<string, SiteContext>> {
+export async function buildSiteContexts(
+  sites: Map<string, Site>,
+  options: { brokerUrl?: string; interfaceName?: string } = {},
+): Promise<Map<string, SiteContext>> {
+  if (options.interfaceName && sites.size > 1) {
+    throw new Error(
+      `interfaceName overrides every site, so ${sites.size} sites would share one VDA topic namespace; ` +
+        "drop it or point SITES_DIR at a single site",
+    );
+  }
   const contexts = new Map<string, SiteContext>();
   for (const [name, site] of sites) {
     const lockSubs = new Set<(snapshot: LockSnapshot) => void>();
     const orderSubs = new Set<(orders: ActiveOrder[]) => void>();
-    const fleet = await bootSiteFleet(site, name, {
-      onLocks: (snapshot) => {
-        for (const send of [...lockSubs]) send(snapshot);
+    const fleet = await bootSiteFleet(
+      site,
+      options.interfaceName ?? name,
+      {
+        onLocks: (snapshot) => {
+          for (const send of [...lockSubs]) send(snapshot);
+        },
+        onOrders: (orders) => {
+          for (const send of [...orderSubs]) send(orders);
+        },
       },
-      onOrders: (orders) => {
-        for (const send of [...orderSubs]) send(orders);
-      },
-    });
+      options.brokerUrl ? { brokerUrl: options.brokerUrl } : {},
+    );
     contexts.set(name, { ...fleet, lockSubs, orderSubs });
   }
   return contexts;
@@ -108,7 +128,12 @@ function siteGuard(
 }
 
 /** Build the API without listening (exported for Eden Treaty typing). */
-export function buildApp(auth: Auth, contexts: Map<string, SiteContext>) {
+export function buildApp(
+  auth: Auth,
+  contexts: Map<string, SiteContext>,
+  options: { defaultManufacturer?: string } = {},
+) {
+  const defaultManufacturer = options.defaultManufacturer ?? "RobotCompany";
   return new Elysia()
     .onError(({ error, set }) => {
       const status = (error as { status?: number }).status ?? 401;
@@ -177,6 +202,48 @@ export function buildApp(auth: Auth, contexts: Map<string, SiteContext>) {
     .post("/api/logout", ({ headers }) => {
       auth.logout(bearerFromHeaders(headers));
       return { ok: true };
+    })
+    .post("/api/sites/:name/orders", async ({ headers, params, body }) => {
+      // Authenticate first: a 404 before the token check would let anyone
+      // enumerate site names.
+      const me = auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const input = (body ?? {}) as {
+        manufacturer?: unknown;
+        serialNumber?: unknown;
+        waypoints?: unknown;
+      };
+      const manufacturer =
+        typeof input.manufacturer === "string" ? input.manufacturer : defaultManufacturer;
+      if (typeof input.serialNumber !== "string" || !input.serialNumber) {
+        throw Object.assign(new Error("serialNumber required"), { status: 400 });
+      }
+      if (!Array.isArray(input.waypoints) || input.waypoints.length === 0) {
+        throw Object.assign(new Error("non-empty waypoints required"), { status: 400 });
+      }
+      const waypoints = input.waypoints.map((w, i) => {
+        const point = w as { nodeId?: unknown; x?: unknown; y?: unknown };
+        if (typeof point.nodeId !== "string" || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+          throw Object.assign(new Error(`waypoints[${i}] needs nodeId, x, y`), { status: 400 });
+        }
+        return { nodeId: point.nodeId, x: point.x as number, y: point.y as number };
+      });
+      // Accepted, not awaited: progress streams over locks/orders SSE.
+      // Busy is refused synchronously; later failures ride the orders
+      // feed and server logs.
+      if (ctx.fleet.isBusy(input.serialNumber)) {
+        throw Object.assign(
+          new Error(`robot ${input.serialNumber} is busy — wait or cancel first`),
+          { status: 409 },
+        );
+      }
+      ctx.fleet
+        .dispatch({ manufacturer, serialNumber: input.serialNumber }, waypoints)
+        .catch((error: unknown) => console.warn("dispatch failed", error));
+      return { ok: true };
     });
 }
 
@@ -185,8 +252,11 @@ export type FleetApi = ReturnType<typeof buildApp>;
 /** Boot the API. Returns the Bun server handle (call .stop() in tests). */
 export async function serve(options: ServeOptions) {
   const auth = new Auth(await loadUsersFile(options.usersFile));
-  const contexts = await buildSiteContexts(loadSites(options.sitesDir ?? "data/seed/sites"));
-  const app = buildApp(auth, contexts);
+  const contexts = await buildSiteContexts(loadSites(options.sitesDir ?? "data/seed/sites"), {
+    brokerUrl: options.brokerUrl,
+    interfaceName: options.interfaceName,
+  });
+  const app = buildApp(auth, contexts, { defaultManufacturer: options.defaultManufacturer });
   app.listen(options.port ?? 4000);
 
   const server = app.server!;

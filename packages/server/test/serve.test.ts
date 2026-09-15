@@ -195,6 +195,66 @@ describe("HTTP API", () => {
     }
   });
 
+  test("dispatch accepts orders, refuses busy robots", async () => {
+    const { post, base, server, contexts } = await boot();
+    try {
+      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
+      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
+      const eph = srpClient.generateEphemeral();
+      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
+      const { token } = await (
+        await post("/api/login/finish", {
+          serverEphemeral: step1.serverEphemeral,
+          clientEphemeral: eph.public,
+          proof: sess.proof,
+        })
+      ).json();
+      const authz = {
+        authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+      const order = {
+        manufacturer: "RobotCompany",
+        serialNumber: "api-1",
+        waypoints: [{ nodeId: "a", x: 0, y: 0 }],
+      };
+      const dispatch = (site: string, body: unknown, headers: Record<string, string> = authz) =>
+        fetch(`${base}/api/sites/${site}/orders`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+
+      expect((await dispatch("coalescent", order)).status).toBe(200);
+      // manufacturer is optional and falls back to the configured default
+      // grant engages synchronously on assign (no AGV needed)
+      const ctx = contexts.get("coalescent")!;
+      const deadline = Date.now() + 10_000;
+      while (
+        !(ctx.locks.snapshot().nodeLocks.find((n) => n.id === "a")?.owners.includes("api-1")) &&
+        Date.now() < deadline
+      ) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(ctx.locks.snapshot().nodeLocks.find((n) => n.id === "a")?.owners).toEqual(["api-1"]);
+
+      expect((await dispatch("coalescent", order)).status).toBe(409);
+      expect((await dispatch("coalescent", { ...order, waypoints: [] })).status).toBe(400);
+      expect((await dispatch("coalescent", { ...order, serialNumber: 42 })).status).toBe(400);
+      expect(
+        (await dispatch("coalescent", order, { "Content-Type": "application/json" })).status,
+      ).toBe(401);
+      expect((await dispatch("ghost", order)).status).toBe(404);
+      expect((await dispatch("other", order)).status).toBe(403);
+      // an unknown site without a token is 401, not 404: no enumeration
+      expect(
+        (await dispatch("ghost", order, { "Content-Type": "application/json" })).status,
+      ).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("locks stream pushes on dispatch", async () => {
     const { post, base, server, contexts, stop } = await boot();
     try {

@@ -265,6 +265,8 @@ describe("Fleet dispatch with locks", () => {
         { nodeId: "a", x: 0, y: 0 },
         { nodeId: "b", x: 8, y: 0 },
       ]);
+      expect(fleet.isBusy("busy-1")).toBe(true);
+      expect(fleet.isBusy("someone-else")).toBe(false);
       await expect(
         fleet.dispatch(r, [
           { nodeId: "b", x: 8, y: 0 },
