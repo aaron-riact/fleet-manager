@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
-import { bootSiteFleet } from "@fleet-manager/vda";
-import type { ActiveOrder, SiteFleet } from "@fleet-manager/vda";
+import { bootSiteFleet, watchRobots } from "@fleet-manager/vda";
+import type { ActiveOrder, RobotPose, SiteFleet } from "@fleet-manager/vda";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
@@ -34,11 +34,17 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function liveStream<T>(initial: T, subscribe: (send: (value: T) => void) => () => void): Response {
+function liveStream<T>(initial: T | undefined, subscribe: (send: (value: T) => void) => () => void): Response {
   let cleanup: (() => void) | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  // One exit for every way a stream ends: cancelled, or found dead on a
+  // write. Both the sink and the timer have to go, or the process keeps
+  // ticking for a connection nobody is reading.
   const teardown = () => {
     cleanup?.();
     cleanup = undefined;
+    if (heartbeat !== undefined) clearInterval(heartbeat);
+    heartbeat = undefined;
   };
   const stream = new ReadableStream<string>({
     start(controller) {
@@ -55,7 +61,18 @@ function liveStream<T>(initial: T, subscribe: (send: (value: T) => void) => () =
       // cannot be missed; nothing can run in between, but the order is the
       // one that stays correct if a send ever becomes async.
       cleanup = subscribe(send);
-      send(initial);
+      // Poses have no meaningful baseline: the first real frame is the
+      // first robot to report.
+      if (initial !== undefined) send(initial);
+      // SSE comment keepalive: idle connections get reaped otherwise,
+      // surfacing as ERR_INCOMPLETE_CHUNKED_ENCODING in the browser.
+      heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(`: ping\n\n`);
+        } catch {
+          teardown();
+        }
+      }, 15_000);
     },
     cancel() {
       teardown();
@@ -82,6 +99,7 @@ function fanOut<T>(sinks: Set<(value: T) => void>, send: (value: T) => void): ()
 export interface SiteContext extends SiteFleet {
   lockSubs: Set<(snapshot: LockSnapshot) => void>;
   orderSubs: Set<(orders: ActiveOrder[]) => void>;
+  poseSubs: Set<(pose: RobotPose) => void>;
 }
 
 export async function buildSiteContexts(
@@ -98,6 +116,7 @@ export async function buildSiteContexts(
   for (const [name, site] of sites) {
     const lockSubs = new Set<(snapshot: LockSnapshot) => void>();
     const orderSubs = new Set<(orders: ActiveOrder[]) => void>();
+    const poseSubs = new Set<(pose: RobotPose) => void>();
     const fleet = await bootSiteFleet(
       site,
       options.interfaceName ?? name,
@@ -111,7 +130,21 @@ export async function buildSiteContexts(
       },
       options.brokerUrl ? { brokerUrl: options.brokerUrl } : {},
     );
-    contexts.set(name, { ...fleet, lockSubs, orderSubs });
+    // Keep the unsubscribe: a discarded one leaves the pose subscription
+    // live on a master the caller thinks it has stopped.
+    const stopPoses = await watchRobots(fleet.master, undefined, (pose) => {
+      for (const send of [...poseSubs]) send(pose);
+    });
+    contexts.set(name, {
+      ...fleet,
+      lockSubs,
+      orderSubs,
+      poseSubs,
+      stop: async () => {
+        stopPoses();
+        await fleet.stop();
+      },
+    });
   }
   return contexts;
 }
@@ -138,6 +171,9 @@ export function buildApp(
     .onError(({ error, set }) => {
       const status = (error as { status?: number }).status ?? 401;
       set.status = status;
+      // Errors skip onAfterHandle, so set CORS here too — otherwise the
+      // browser hides the real status behind an opaque CORS failure.
+      set.headers["Access-Control-Allow-Origin"] = "*";
       return { error: (error as Error).message };
     })
     .onAfterHandle(({ set }) => {
@@ -196,7 +232,7 @@ export function buildApp(
       if (params.stream === "orders")
         return liveStream(ctx.fleet.activeOrderList(), (send) => fanOut(ctx.orderSubs, send));
       if (params.stream === "poses")
-        return liveStream({ type: "poses", site: ctx.site.name, poses: [] }, () => () => {});
+        return liveStream<RobotPose>(undefined, (send) => fanOut(ctx.poseSubs, send));
       throw Object.assign(new Error("unknown stream"), { status: 404 });
     })
     .post("/api/logout", ({ headers }) => {

@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AgvController, VirtualAgvAdapter } from "vda-5050-lib";
 import { createVerifier, serializeUsersFile, srpClient } from "@fleet-manager/core";
+import { attachMemoryTransport } from "@fleet-manager/vda";
 import { serve } from "../src/serve.js";
 
 async function boot() {
@@ -81,6 +83,17 @@ describe("HTTP API", () => {
       expect((await post("/api/login/finish", { proof: "x" })).status).toBe(400);
     } finally {
       await stop();
+    }
+  });
+
+  test("error responses carry CORS headers", async () => {
+    const { base, server } = await boot();
+    try {
+      const res = await fetch(`${base}/api/sites`);
+      expect(res.status).toBe(401);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    } finally {
+      server.stop(true);
     }
   });
 
@@ -314,6 +327,76 @@ describe("HTTP API", () => {
       }
     } finally {
       await stop();
+    }
+  });
+
+  test("poses stream forwards robot state", async () => {
+    const { post, base, server, contexts } = await boot();
+    try {
+      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
+      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
+      const eph = srpClient.generateEphemeral();
+      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
+      const { token } = await (
+        await post("/api/login/finish", {
+          serverEphemeral: step1.serverEphemeral,
+          clientEphemeral: eph.public,
+          proof: sess.proof,
+        })
+      ).json();
+
+      const ctx = contexts.get("coalescent")!;
+      const robot = new AgvController(
+        { manufacturer: "RobotCompany", serialNumber: "pose-1" },
+        {
+          interfaceName: "coalescent",
+          vdaVersion: "2.0.0",
+          transport: { brokerUrl: "mqtt://memory" },
+          topicObjectValidation: { inbound: false, outbound: false },
+        },
+        { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+        { vehicleSpeed: 2, initialPosition: { mapId: "local", x: 0, y: 0, theta: 0, lastNodeId: "0" } },
+      );
+      attachMemoryTransport(robot, ctx.hub);
+      await robot.start();
+      try {
+        const res = await fetch(`${base}/api/sites/coalescent/poses/stream?token=${encodeURIComponent(token)}`);
+        expect(res.status).toBe(200);
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        let pose: { serialNumber?: string; x?: number; y?: number } | null = null;
+        try {
+          const deadline = Date.now() + 10_000;
+          while (Date.now() < deadline) {
+            const idx = buf.indexOf("\n\n");
+            if (idx >= 0) {
+              const frame = buf.slice(0, idx);
+              buf = buf.slice(idx + 2);
+              const match = /^data: (.*)$/s.exec(frame);
+              if (match) {
+                const data = JSON.parse(match[1]!);
+                if (data.serialNumber === "pose-1") {
+                  pose = data;
+                  break;
+                }
+              }
+              continue;
+            }
+            const { done, value } = await reader.read();
+            if (done) throw new Error("stream closed");
+            buf += decoder.decode(value, { stream: true });
+          }
+        } finally {
+          await reader.cancel();
+        }
+        expect(pose?.serialNumber).toBe("pose-1");
+        expect(Number.isFinite(pose?.x)).toBe(true);
+      } finally {
+        await robot.stop();
+      }
+    } finally {
+      server.stop(true);
     }
   });
 });
