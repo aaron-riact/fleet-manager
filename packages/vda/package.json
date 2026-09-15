@@ -11,5 +11,8 @@
   "scripts": {
     "build": "echo 'vda: stub (phase 2)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "aedes": "^1.1.3"
   }
 }
