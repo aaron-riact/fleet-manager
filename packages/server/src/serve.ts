@@ -5,6 +5,9 @@ import type { LockSnapshot, Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
 import { Auth } from "./auth.js";
+import { MemorySessionStore } from "./sessions.js";
+import type { SessionStore } from "./sessions.js";
+import { SqliteSessionStore } from "./sqlite.js";
 
 export interface ServeOptions {
   port?: number;
@@ -16,6 +19,9 @@ export interface ServeOptions {
   interfaceName?: string;
   /** Manufacturer for dispatch requests that omit one. */
   defaultManufacturer?: string;
+  /** SQLite sessions file. Absent: in-memory sessions (tests, ephemeral dev). */
+  sessionsFile?: string;
+  sessionTtlMs?: number;
 }
 
 function bearerFromHeaders(headers: Record<string, string | undefined>): string {
@@ -294,7 +300,17 @@ export type FleetApi = ReturnType<typeof buildApp>;
 
 /** Boot the API. Returns the Bun server handle (call .stop() in tests). */
 export async function serve(options: ServeOptions) {
-  const auth = new Auth(await loadUsersFile(options.usersFile));
+  const store: SessionStore = options.sessionsFile
+    ? new SqliteSessionStore(options.sessionsFile)
+    : new MemorySessionStore();
+  const auth = new Auth(await loadUsersFile(options.usersFile), {
+    store,
+    sessionTtlMs: options.sessionTtlMs,
+  });
+  const purged = await auth.purge();
+  if (purged.challenges > 0 || purged.sessions > 0) {
+    console.log(`sessions: purged ${purged.challenges} challenges, ${purged.sessions} sessions`);
+  }
   const contexts = await buildSiteContexts(loadSites(options.sitesDir ?? "data/seed/sites"), {
     brokerUrl: options.brokerUrl,
     interfaceName: options.interfaceName,
@@ -307,6 +323,7 @@ export async function serve(options: ServeOptions) {
   const stop = async () => {
     server.stop(true);
     for (const ctx of contexts.values()) await ctx.stop();
+    await store.close?.();
   };
   return { server, auth, port: server.port, contexts, stop };
 }

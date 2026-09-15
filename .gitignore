@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 .DS_Store
 bun.lockb
+# session store (SESSIONS_FILE); WAL mode adds -wal/-shm siblings
+data/sessions.db*
