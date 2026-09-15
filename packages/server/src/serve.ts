@@ -1,4 +1,6 @@
+import { Elysia } from "elysia";
 import { buildLocks } from "@fleet-manager/core";
+import type { Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
 import { Auth } from "./auth.js";
@@ -9,16 +11,8 @@ export interface ServeOptions {
   sitesDir?: string;
 }
 
-async function readJson(req: Request): Promise<unknown> {
-  try {
-    return await req.json();
-  } catch {
-    throw Object.assign(new Error("malformed JSON body"), { status: 400 });
-  }
-}
-
-function bearer(req: Request): string {
-  const header = req.headers.get("authorization") ?? "";
+function bearerFromHeaders(headers: Record<string, string | undefined>): string {
+  const header = headers.authorization ?? "";
   const [scheme, token] = header.split(" ");
   if (scheme !== "Bearer" || !token) {
     throw Object.assign(new Error("missing Bearer token"), { status: 401 });
@@ -46,105 +40,92 @@ function sse(payload: unknown): Response {
   });
 }
 
-/** Token for SSE (EventSource cannot send headers): query ?token= or Bearer. */
-function streamToken(req: Request, url: URL): string {
-  const query = url.searchParams.get("token");
-  if (query) return query;
-  return bearer(req);
-}
-
-function failure(error: unknown): Response {
-  const status = (error as { status?: number }).status ?? 401;
-  return json({ error: (error as Error).message }, status);
+function siteGuard(
+  sites: ReturnType<typeof loadSites>,
+  me: { sites: string[] },
+  name: string,
+): Site {
+  const site = sites.get(name);
+  if (!site) throw Object.assign(new Error("unknown site"), { status: 404 });
+  if (!me.sites.includes(name)) throw Object.assign(new Error("forbidden site"), { status: 403 });
+  return site;
 }
 
 /** Boot the API. Returns the Bun server handle (call .stop() in tests). */
 export async function serve(options: ServeOptions) {
   const auth = new Auth(await loadUsersFile(options.usersFile));
   const sites = loadSites(options.sitesDir ?? "data/seed/sites");
-  const server = Bun.serve({
-    port: options.port ?? 4000,
-    async fetch(req) {
-      const url = new URL(req.url);
-      if (req.method === "OPTIONS") {
-        return new Response(null, {
-          status: 204,
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "authorization, content-type",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          },
-        });
+
+  const app = new Elysia()
+    .onError(({ error, set }) => {
+      const status = (error as { status?: number }).status ?? 401;
+      set.status = status;
+      return { error: (error as Error).message };
+    })
+    .onAfterHandle(({ set }) => {
+      set.headers["Access-Control-Allow-Origin"] = "*";
+    })
+    .options("/api/*", ({ set }) => {
+      set.status = 204;
+      set.headers["Access-Control-Allow-Headers"] = "authorization, content-type";
+      set.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+      return null;
+    })
+    .get("/api/health", () => ({ ok: true }))
+    .post("/api/login/start", ({ body }) => {
+      const username = (body as { username?: unknown } | null)?.username;
+      if (typeof username !== "string")
+        throw Object.assign(new Error("username required"), { status: 400 });
+      return auth.start(username);
+    })
+    .post("/api/login/finish", ({ body }) => {
+      const input = (body ?? {}) as Record<string, unknown>;
+      for (const key of ["serverEphemeral", "clientEphemeral", "proof"]) {
+        if (typeof input[key] !== "string") {
+          throw Object.assign(new Error(`${key} required`), { status: 400 });
+        }
       }
+      return auth.finish(
+        input as { serverEphemeral: string; clientEphemeral: string; proof: string },
+      );
+    })
+    .get("/api/me", ({ headers }) => auth.me(bearerFromHeaders(headers)))
+    .get("/api/sites", ({ headers }) => ({ sites: auth.me(bearerFromHeaders(headers)).sites }))
+    .get("/api/sites/:name/map", ({ headers, params }) => {
+      const me = auth.me(bearerFromHeaders(headers));
+      return siteGuard(sites, me, decodeURIComponent(params.name));
+    })
+    .get("/api/sites/:name/:stream/stream", ({ headers, params, query }) => {
+      // EventSource cannot send headers: query ?token= or Bearer.
+      const token =
+        typeof query.token === "string" && query.token
+          ? query.token
+          : bearerFromHeaders(headers);
+      // Authenticate first: answering 404 for an unknown site before
+      // checking the token lets anyone enumerate site names.
+      let me: { username: string; sites: string[] };
       try {
-        if (req.method === "GET" && url.pathname === "/api/health") {
-          return json({ ok: true });
-        }
-        if (req.method === "POST" && url.pathname === "/api/login/start") {
-          const body = (await readJson(req)) as { username?: unknown };
-          if (typeof body.username !== "string") throw Object.assign(new Error("username required"), { status: 400 });
-          return json(await auth.start(body.username));
-        }
-        if (req.method === "POST" && url.pathname === "/api/login/finish") {
-          const body = (await readJson(req)) as Record<string, unknown>;
-          for (const key of ["serverEphemeral", "clientEphemeral", "proof"]) {
-            if (typeof body[key] !== "string") {
-              throw Object.assign(new Error(`${key} required`), { status: 400 });
-            }
-          }
-          return json(
-            await auth.finish(body as { serverEphemeral: string; clientEphemeral: string; proof: string }),
-          );
-        }
-        if (req.method === "GET" && url.pathname === "/api/me") {
-          return json(auth.me(bearer(req)));
-        }
-        if (req.method === "GET" && url.pathname === "/api/sites") {
-          return json({ sites: auth.me(bearer(req)).sites });
-        }
-        {
-          const mapMatch = /^\/api\/sites\/([^/]+)\/map$/.exec(url.pathname);
-          if (req.method === "GET" && mapMatch) {
-            const me = auth.me(bearer(req));
-            const name = decodeURIComponent(mapMatch[1]!);
-            const site = sites.get(name);
-            if (!site) return json({ error: "unknown site" }, 404);
-            if (!me.sites.includes(name)) return json({ error: "forbidden site" }, 403);
-            return json(site);
-          }
-        }
-        {
-          // Live streams. Baseline frame now; continuous push once the
-          // server runs a Fleet (demo already proves the feed shape).
-          const streamMatch = /^\/api\/sites\/([^/]+)\/(locks|orders|poses)\/stream$/.exec(url.pathname);
-          if (req.method === "GET" && streamMatch) {
-            const name = decodeURIComponent(streamMatch[1]!);
-            const stream = streamMatch[2]!;
-            // Authenticate first: answering 404 for an unknown site before
-            // checking the token lets anyone enumerate site names.
-            let me: { username: string; sites: string[] };
-            try {
-              me = auth.me(streamToken(req, url));
-            } catch {
-              return json({ error: "invalid session" }, 401);
-            }
-            const site = sites.get(name);
-            if (!site) return json({ error: "unknown site" }, 404);
-            if (!me.sites.includes(name)) return json({ error: "forbidden site" }, 403);
-            if (stream === "locks") return sse(buildLocks(site).snapshot());
-            if (stream === "orders") return sse([]);
-            return sse({ type: "poses", site: name, poses: [] });
-          }
-        }
-        if (req.method === "POST" && url.pathname === "/api/logout") {
-          auth.logout(bearer(req));
-          return json({ ok: true });
-        }
-        return json({ error: "not found" }, 404);
-      } catch (error) {
-        return failure(error);
+        me = auth.me(token);
+      } catch {
+        throw Object.assign(new Error("invalid session"), { status: 401 });
       }
-    },
-  });
+      const site = sites.get(decodeURIComponent(params.name));
+      if (!site) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      // Baseline frame now; continuous push once the server runs a Fleet
+      // (demo already proves the feed shape).
+      if (params.stream === "locks") return sse(buildLocks(site).snapshot());
+      if (params.stream === "orders") return sse([]);
+      if (params.stream === "poses") return sse({ type: "poses", site: site.name, poses: [] });
+      throw Object.assign(new Error("unknown stream"), { status: 404 });
+    })
+    .post("/api/logout", ({ headers }) => {
+      auth.logout(bearerFromHeaders(headers));
+      return { ok: true };
+    })
+    .listen(options.port ?? 4000);
+
+  const server = app.server!;
   return { server, auth, port: server.port };
 }

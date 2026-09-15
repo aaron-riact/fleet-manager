@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "@fleet-manager/core": "workspace:*"
+    "@fleet-manager/core": "workspace:*",
+    "elysia": "^1.4.30"
   },
   "scripts": {
     "serve": "bun ./src/dev.ts",
