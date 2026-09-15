@@ -20,15 +20,6 @@ declare const __BUILD_ID__: string;
 const site = siteData as Site;
 const MANUFACTURER = "RobotCompany";
 
-const page: React.CSSProperties = {
-  minHeight: "100vh",
-  margin: 0,
-  background: "#0b0e14",
-  color: "#e6edf3",
-  fontFamily: "system-ui, sans-serif",
-  padding: "1rem",
-};
-
 const panel: React.CSSProperties = {
   background: "#11161f",
   border: "1px solid #232b38",
