@@ -9,13 +9,14 @@
     "@fleet-manager/vda": "workspace:*",
     "elysia": "^1.4.30"
   },
+  "devDependencies": {
+    "aedes": "^1.1.3",
+    "vda-5050-lib": "^1.7.2"
+  },
   "scripts": {
     "serve": "bun ./src/dev.ts",
     "dev": "bun --watch ./src/dev.ts",
     "build": "echo 'server: stub (phase 3)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
-  },
-  "devDependencies": {
-    "aedes": "^1.1.3"
   }
 }
