@@ -8,7 +8,9 @@ import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "./robots";
 import { Fleet } from "@fleet-manager/vda";
 import type { ActiveOrder } from "@fleet-manager/vda";
-import { FleetMap } from "@fleet-manager/ui";
+import { App } from "@fleet-manager/ui";
+import { createMemoryBackend } from "./memoryBackend";
+import type { MemoryBackend } from "./memoryBackend";
 import siteData from "../../../data/seed/sites/coalescent.json";
 import { buildLocks } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
@@ -38,9 +40,9 @@ export default function Director() {
   const fleetRef = useRef<DemoFleet | null>(null);
   const svcRef = useRef<Fleet | null>(null);
   const locksModel = useMemo(() => buildLocks(site as Site), []);
+  const [backend] = useState<MemoryBackend>(() => createMemoryBackend(site as Site));
   const [serials, setSerials] = useState<string[]>([]);
   const [poses, setPoses] = useState<Record<string, RobotPose>>({});
-  const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
   const [orders, setOrders] = useState<ActiveOrder[]>([]);
   // parking spot id -> serial; idle robots live here, off the graph
   const [parked, setParked] = useState<Record<string, string>>({});
@@ -77,23 +79,26 @@ export default function Director() {
       svcRef.current = new Fleet(fleet.master, locksModel, {
         onLocks: (snap) => {
           if (cancelled) return;
+          backend.emitLocks(snap);
           for (const line of diffLocks(prevLocks.current, snap).map(formatLockEvent)) {
             setEvents((prev) => [...prev.slice(-49), line]);
           }
           prevLocks.current = snap;
-          setLocks(snap);
         },
         onArrived: (serial, nodeId, index) => {
           if (cancelled) return;
           setEvents((prev) => [...prev.slice(-49), `${serial} at ${nodeId} (${index})`]);
         },
         onOrders: (list) => {
-          if (!cancelled) setOrders(list);
+          if (cancelled) return;
+          backend.emitOrders(list);
+          setOrders(list);
         },
       });
       setSerials(fleet.robots.map((r) => r.id.serialNumber));
       await watchRobots(fleet.master, MANUFACTURER, (pose) => {
         if (cancelled) return;
+        backend.emitPose(pose);
         setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
       });
       fleet.hub.subscribe("#", (topic) => {
@@ -207,31 +212,19 @@ export default function Director() {
   }
 
   return (
-    <div style={page}>
-      <header style={{ display: "flex", gap: "1rem", alignItems: "baseline" }}>
-        <h1 style={{ margin: 0 }}>Fleet Demo</h1>
-        <span style={{ color: "#8b949e" }}>
-          serverless · {status} · build {__BUILD_ID__}
-        </span>
-      </header>
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1rem", marginTop: "1rem" }}>
-        <FleetMap
-          site={site}
-          locks={locks}
-          parking={site.parking ?? []}
-          waits={orders.flatMap((o) => {
-            const next = o.nodes.find((n) => !n.released);
-            return next ? [{ serialNumber: o.serial, nodeId: next.nodeId }] : [];
-          })}
-          robots={serials.map((s) => ({
-            serialNumber: s,
-            x: poses[s]?.x ?? Number.NaN,
-            y: poses[s]?.y ?? Number.NaN,
-          }))}
-        />
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+    <App
+      sessionOverride={{ token: "demo", username: "demo", sites: [(site as Site).name] }}
+      createBackend={() => backend}
+      extraPanel={
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
           <section style={panel}>
-            <h2 style={{ marginTop: 0 }}>Robots</h2>
+            <h2 style={{ marginTop: 0 }}>
+              Director{" "}
+              <span style={{ fontSize: "0.7rem", color: "#8b949e", fontWeight: "normal" }}>
+                serverless · {status} · build {__BUILD_ID__}
+              </span>
+            </h2>
+            <h3 style={{ fontSize: "0.85rem", color: "#8b949e" }}>Robots</h3>
             {serials.map((s) => (
               <React.Fragment key={s}>
                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.25rem 0" }}>
@@ -302,11 +295,11 @@ export default function Director() {
           <section style={panel}>
             <h2 style={{ marginTop: 0 }}>Bus topics</h2>
             <pre style={{ maxHeight: 200, overflow: "auto", fontSize: "0.75rem", color: "#8b949e" }}>
-              {log.join("\n")}
+              {log.join("\n") || "no non-state traffic yet"}
             </pre>
           </section>
         </div>
-      </div>
-    </div>
+      }
+    />
   );
 }
