@@ -69,4 +69,17 @@ describe("loadSites", () => {
       buildSiteContexts(loadSites(dir), { interfaceName: "shared" }),
     ).rejects.toThrow(/one VDA topic namespace/);
   });
+
+  test("buildSiteContexts logs each site's interface and transport", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fleet-sites-"));
+    writeFileSync(join(dir, "a.json"), JSON.stringify(site));
+    const lines: string[] = [];
+    const contexts = await buildSiteContexts(loadSites(dir), { log: (line) => void lines.push(line) });
+    try {
+      expect([...contexts.keys()]).toEqual(["s1"]);
+      expect(lines.some((l) => l.includes("s1") && l.includes("memory bus"))).toBe(true);
+    } finally {
+      for (const [, ctx] of contexts) await ctx.stop();
+    }
+  });
 });

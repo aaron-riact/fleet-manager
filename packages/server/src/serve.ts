@@ -104,7 +104,7 @@ export interface SiteContext extends SiteFleet {
 
 export async function buildSiteContexts(
   sites: Map<string, Site>,
-  options: { brokerUrl?: string; interfaceName?: string } = {},
+  options: { brokerUrl?: string; interfaceName?: string; log?: (line: string) => void } = {},
 ): Promise<Map<string, SiteContext>> {
   if (options.interfaceName && sites.size > 1) {
     throw new Error(
@@ -112,14 +112,17 @@ export async function buildSiteContexts(
         "drop it or point SITES_DIR at a single site",
     );
   }
+  const log = options.log ?? ((line) => console.log(line));
   const contexts = new Map<string, SiteContext>();
   for (const [name, site] of sites) {
+    const interfaceName = options.interfaceName ?? name;
+    const via = options.brokerUrl ?? "memory bus";
     const lockSubs = new Set<(snapshot: LockSnapshot) => void>();
     const orderSubs = new Set<(orders: ActiveOrder[]) => void>();
     const poseSubs = new Set<(pose: RobotPose) => void>();
     const fleet = await bootSiteFleet(
       site,
-      options.interfaceName ?? name,
+      interfaceName,
       {
         onLocks: (snapshot) => {
           for (const send of [...lockSubs]) send(snapshot);
@@ -130,11 +133,15 @@ export async function buildSiteContexts(
       },
       options.brokerUrl ? { brokerUrl: options.brokerUrl } : {},
     );
+    fleet.master.registerConnectionStateChange((state, previous) => {
+      log(`site ${name}: broker ${previous} -> ${state} (${via})`);
+    });
     // Keep the unsubscribe: a discarded one leaves the pose subscription
     // live on a master the caller thinks it has stopped.
     const stopPoses = await watchRobots(fleet.master, undefined, (pose) => {
       for (const send of [...poseSubs]) send(pose);
     });
+    log(`site ${name}: interface ${interfaceName} via ${via}`);
     contexts.set(name, {
       ...fleet,
       lockSubs,
