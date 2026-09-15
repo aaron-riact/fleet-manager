@@ -1,4 +1,7 @@
+import { treaty } from "@elysiajs/eden";
+import type { FleetApi } from "@fleet-manager/server";
 import { srpClient } from "@fleet-manager/core";
+import { errorMessage } from "./api.js";
 
 export interface LoginSession {
   token: string;
@@ -18,40 +21,38 @@ export async function login(
   password: string,
   fetchFn: FetchFn = fetch,
 ): Promise<LoginSession> {
-  const post = async (path: string, body: unknown) => {
-    const res = await fetchFn(`${baseUrl}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json()) as Record<string, unknown>;
-    if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : `login failed: ${res.status}`);
-    return data;
-  };
+  const api = treaty<FleetApi>(baseUrl, { fetcher: fetchFn as typeof fetch });
 
-  const step1 = await post("/api/login/start", { username });
-  if (typeof step1.salt !== "string" || typeof step1.serverEphemeral !== "string") {
-    throw new Error("bad challenge from server");
+  const start = await api.api.login.start.post({ username });
+  if (start.data == null || "error" in start.data) {
+    throw new Error(
+      start.data != null ? start.data.error : errorMessage(start.error, start.status),
+    );
   }
-  const privateKey = await srpClient.derivePrivateKey(step1.salt, username, password);
+  const { salt, serverEphemeral } = start.data;
+  const privateKey = await srpClient.derivePrivateKey(salt, username, password);
   const ephemeral = srpClient.generateEphemeral();
   const session = await srpClient.deriveSession(
     ephemeral.secret,
-    step1.serverEphemeral,
-    step1.salt,
+    serverEphemeral,
+    salt,
     username,
     privateKey,
   );
-  const step2 = await post("/api/login/finish", {
-    serverEphemeral: step1.serverEphemeral,
+  const finish = await api.api.login.finish.post({
+    serverEphemeral,
     clientEphemeral: ephemeral.public,
     proof: session.proof,
   });
-  if (typeof step2.token !== "string") throw new Error("bad session from server");
-  await srpClient.verifySession(ephemeral.public, session, step2.proof as string);
+  if (finish.data == null || "error" in finish.data) {
+    throw new Error(
+      finish.data != null ? finish.data.error : errorMessage(finish.error, finish.status),
+    );
+  }
+  await srpClient.verifySession(ephemeral.public, session, finish.data.proof);
   return {
-    token: step2.token,
-    username: step2.username as string,
-    sites: step2.sites as string[],
+    token: finish.data.token,
+    username: finish.data.username,
+    sites: finish.data.sites,
   };
 }

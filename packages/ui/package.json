@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@elysiajs/eden": "^1.4.9",
     "@fleet-manager/core": "workspace:*",
     "js-srp6a": "^1.0.3",
     "react": "^19.1.1",
