@@ -115,4 +115,54 @@ describe("HTTP API", () => {
       server.stop(true);
     }
   });
+
+  test("streams emit baseline frames with query-token auth", async () => {
+    const { post, base, server } = await boot();
+    try {
+      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
+      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
+      const eph = srpClient.generateEphemeral();
+      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
+      const { token } = await (
+        await post("/api/login/finish", {
+          serverEphemeral: step1.serverEphemeral,
+          clientEphemeral: eph.public,
+          proof: sess.proof,
+        })
+      ).json();
+
+      async function firstFrame(path: string): Promise<{ status: number; type: string | null; data: unknown }> {
+        const res = await fetch(`${base}${path}?token=${encodeURIComponent(token)}`);
+        const text = await res.text();
+        const match = /^data: (.*)\n\n$/s.exec(text);
+        return {
+          status: res.status,
+          type: res.headers.get("content-type"),
+          data: match ? JSON.parse(match[1]!) : null,
+        };
+      }
+
+      const locks = await firstFrame("/api/sites/coalescent/locks/stream");
+      expect(locks.status).toBe(200);
+      expect(locks.type).toContain("text/event-stream");
+      expect(locks.data).toMatchObject({ nodeLocks: [{ id: "a", owners: [], waiters: [] }] });
+
+      const orders = await firstFrame("/api/sites/coalescent/orders/stream");
+      expect(orders.status).toBe(200);
+      expect(orders.data).toEqual([]);
+
+      // no token, unknown site, forbidden site
+      expect((await fetch(`${base}/api/sites/coalescent/locks/stream`)).status).toBe(401);
+      // an unknown site is still 401 without a token: no enumeration
+      expect((await fetch(`${base}/api/sites/ghost/locks/stream`)).status).toBe(401);
+      expect(
+        (await fetch(`${base}/api/sites/ghost/locks/stream?token=${encodeURIComponent(token)}`)).status,
+      ).toBe(404);
+      expect(
+        (await fetch(`${base}/api/sites/other/locks/stream?token=${encodeURIComponent(token)}`)).status,
+      ).toBe(403);
+    } finally {
+      server.stop(true);
+    }
+  });
 });

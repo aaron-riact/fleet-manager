@@ -1,3 +1,4 @@
+import { buildLocks } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
 import { Auth } from "./auth.js";
@@ -30,6 +31,26 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { "Access-Control-Allow-Origin": "*" },
   });
+}
+
+function sse(payload: unknown): Response {
+  const frame = `data: ${JSON.stringify(payload)}\n\n`;
+  return new Response(frame, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
+
+/** Token for SSE (EventSource cannot send headers): query ?token= or Bearer. */
+function streamToken(req: Request, url: URL): string {
+  const query = url.searchParams.get("token");
+  if (query) return query;
+  return bearer(req);
 }
 
 function failure(error: unknown): Response {
@@ -90,6 +111,29 @@ export async function serve(options: ServeOptions) {
             if (!site) return json({ error: "unknown site" }, 404);
             if (!me.sites.includes(name)) return json({ error: "forbidden site" }, 403);
             return json(site);
+          }
+        }
+        {
+          // Live streams. Baseline frame now; continuous push once the
+          // server runs a Fleet (demo already proves the feed shape).
+          const streamMatch = /^\/api\/sites\/([^/]+)\/(locks|orders|poses)\/stream$/.exec(url.pathname);
+          if (req.method === "GET" && streamMatch) {
+            const name = decodeURIComponent(streamMatch[1]!);
+            const stream = streamMatch[2]!;
+            // Authenticate first: answering 404 for an unknown site before
+            // checking the token lets anyone enumerate site names.
+            let me: { username: string; sites: string[] };
+            try {
+              me = auth.me(streamToken(req, url));
+            } catch {
+              return json({ error: "invalid session" }, 401);
+            }
+            const site = sites.get(name);
+            if (!site) return json({ error: "unknown site" }, 404);
+            if (!me.sites.includes(name)) return json({ error: "forbidden site" }, 403);
+            if (stream === "locks") return sse(buildLocks(site).snapshot());
+            if (stream === "orders") return sse([]);
+            return sse({ type: "poses", site: name, poses: [] });
           }
         }
         if (req.method === "POST" && url.pathname === "/api/logout") {
