@@ -7,5 +7,12 @@
   "scripts": {
     "build": "echo 'transport-mqtt: stub (phase 2)'",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fleet-manager/core": "workspace:*",
+    "mqtt": "^5.15.2"
+  },
+  "devDependencies": {
+    "aedes": "^1.1.3"
   }
 }

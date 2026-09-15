@@ -1,2 +1,2 @@
-// @fleet-manager/transport-mqtt — stub (phase 2: mqtt.js Bus for Node/Bun).
-export {};
+export { MqttBus } from "./mqttBus.js";
+export type { MqttBusOptions } from "./mqttBus.js";
