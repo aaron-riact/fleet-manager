@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { login } from "./authClient";
 import { clearSession, loadSession, saveSession } from "./session";
 import { createHttpBackend } from "./backend";
-import type { Backend } from "./backend";
+import type { Backend, LivePose, OrderView } from "./backend";
+import type { LockSnapshot } from "@fleet-manager/core";
 import { FleetMap } from "./FleetMap";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
@@ -97,21 +98,39 @@ export function Shell({
 }) {
   const [site, setSite] = useState<Site | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [poses, setPoses] = useState<Record<string, LivePose>>({});
+  const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
+  const [orders, setOrders] = useState<OrderView[]>([]);
 
   useEffect(() => {
     let cancelled = false;
+    const cleanups: Array<() => void> = [];
     (async () => {
       try {
         const sites = await backend.listSites();
         if (sites.length === 0) throw new Error("no sites assigned to this user");
-        const map = await backend.getMap(sites[0]!);
-        if (!cancelled) setSite(map);
+        const name = sites[0]!;
+        const map = await backend.getMap(name);
+        if (cancelled) return;
+        setSite(map);
+        cleanups.push(
+          backend.watchPoses(name, (pose) => {
+            if (!cancelled) setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
+          }),
+          backend.watchLocks(name, (snap) => {
+            if (!cancelled) setLocks(snap);
+          }),
+          backend.watchOrders(name, (list) => {
+            if (!cancelled) setOrders(list);
+          }),
+        );
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load map");
       }
     })();
     return () => {
       cancelled = true;
+      for (const cleanup of cleanups) cleanup();
     };
   }, [backend]);
 
@@ -135,7 +154,20 @@ export function Shell({
         {site && (
           <>
             <h2 style={{ fontSize: "1rem", color: "#8b949e" }}>{site.name}</h2>
-            <FleetMap site={site} />
+            <FleetMap
+              site={site}
+              locks={locks}
+              parking={site.parking ?? []}
+              waits={orders.flatMap((o) => {
+                const next = o.nodes.find((n) => !n.released);
+                return next ? [{ serialNumber: o.serial, nodeId: next.nodeId }] : [];
+              })}
+              robots={Object.values(poses).map((p) => ({
+                serialNumber: p.serialNumber,
+                x: p.x,
+                y: p.y,
+              }))}
+            />
           </>
         )}
         {extraPanel}
@@ -144,15 +176,25 @@ export function Shell({
   );
 }
 
-export default function App({ createBackend }: { createBackend?: (session: LoginSession) => Backend } = {}) {
+export default function App({
+  createBackend,
+  sessionOverride,
+  extraPanel,
+}: {
+  createBackend?: (session: LoginSession) => Backend;
+  /** Demo bypass: skip the login form entirely. */
+  sessionOverride?: LoginSession | null;
+  extraPanel?: React.ReactNode;
+} = {}) {
   const [session, setSession] = useState<LoginSession | null>(() => loadSession());
+  const effective = sessionOverride ?? session;
   const backend = useMemo(
     () =>
-      session
-        ? (createBackend?.(session) ?? createHttpBackend(API_BASE, session.token))
+      effective
+        ? (createBackend?.(effective) ?? createHttpBackend(API_BASE, effective.token))
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [session?.token],
+    [effective?.token],
   );
 
   function handleLogin(next: LoginSession) {
@@ -161,6 +203,7 @@ export default function App({ createBackend }: { createBackend?: (session: Login
   }
 
   function handleLogout() {
+    if (sessionOverride) return;
     if (session) {
       fetch(`${API_BASE}/api/logout`, {
         method: "POST",
@@ -173,8 +216,8 @@ export default function App({ createBackend }: { createBackend?: (session: Login
 
   return (
     <div style={page}>
-      {session && backend ? (
-        <Shell session={session} backend={backend} onLogout={handleLogout} />
+      {effective && backend ? (
+        <Shell session={effective} backend={backend} onLogout={handleLogout} extraPanel={extraPanel} />
       ) : (
         <LoginForm onLogin={handleLogin} />
       )}
