@@ -51,12 +51,9 @@ function siteGuard(
   return site;
 }
 
-/** Boot the API. Returns the Bun server handle (call .stop() in tests). */
-export async function serve(options: ServeOptions) {
-  const auth = new Auth(await loadUsersFile(options.usersFile));
-  const sites = loadSites(options.sitesDir ?? "data/seed/sites");
-
-  const app = new Elysia()
+/** Build the API without listening (exported for Eden Treaty typing). */
+export function buildApp(auth: Auth, sites: Map<string, Site>) {
+  return new Elysia()
     .onError(({ error, set }) => {
       const status = (error as { status?: number }).status ?? 401;
       set.status = status;
@@ -123,8 +120,17 @@ export async function serve(options: ServeOptions) {
     .post("/api/logout", ({ headers }) => {
       auth.logout(bearerFromHeaders(headers));
       return { ok: true };
-    })
-    .listen(options.port ?? 4000);
+    });
+}
+
+export type FleetApi = ReturnType<typeof buildApp>;
+
+/** Boot the API. Returns the Bun server handle (call .stop() in tests). */
+export async function serve(options: ServeOptions) {
+  const auth = new Auth(await loadUsersFile(options.usersFile));
+  const sites = loadSites(options.sitesDir ?? "data/seed/sites");
+  const app = buildApp(auth, sites);
+  app.listen(options.port ?? 4000);
 
   const server = app.server!;
   return { server, auth, port: server.port };
