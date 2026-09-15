@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { login } from "./authClient";
 import { clearSession, loadSession, saveSession } from "./session";
-import { fetchMap, fetchSites } from "./api";
+import { createHttpBackend } from "./backend";
+import type { Backend } from "./backend";
 import { FleetMap } from "./FleetMap";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
@@ -83,7 +84,17 @@ function LoginForm({ onLogin }: { onLogin: (s: LoginSession) => void }) {
   );
 }
 
-function Shell({ session, onLogout }: { session: LoginSession; onLogout: () => void }) {
+export function Shell({
+  session,
+  backend,
+  onLogout,
+  extraPanel,
+}: {
+  session: LoginSession;
+  backend: Backend;
+  onLogout: () => void;
+  extraPanel?: React.ReactNode;
+}) {
   const [site, setSite] = useState<Site | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,9 +102,9 @@ function Shell({ session, onLogout }: { session: LoginSession; onLogout: () => v
     let cancelled = false;
     (async () => {
       try {
-        const sites = await fetchSites(API_BASE, session.token);
+        const sites = await backend.listSites();
         if (sites.length === 0) throw new Error("no sites assigned to this user");
-        const map = await fetchMap(API_BASE, session.token, sites[0]!);
+        const map = await backend.getMap(sites[0]!);
         if (!cancelled) setSite(map);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load map");
@@ -102,7 +113,7 @@ function Shell({ session, onLogout }: { session: LoginSession; onLogout: () => v
     return () => {
       cancelled = true;
     };
-  }, [session.token]);
+  }, [backend]);
 
   return (
     <div style={{ width: "100%", maxWidth: 960, padding: "1rem" }}>
@@ -127,13 +138,22 @@ function Shell({ session, onLogout }: { session: LoginSession; onLogout: () => v
             <FleetMap site={site} />
           </>
         )}
+        {extraPanel}
       </main>
     </div>
   );
 }
 
-export default function App() {
+export default function App({ createBackend }: { createBackend?: (session: LoginSession) => Backend } = {}) {
   const [session, setSession] = useState<LoginSession | null>(() => loadSession());
+  const backend = useMemo(
+    () =>
+      session
+        ? (createBackend?.(session) ?? createHttpBackend(API_BASE, session.token))
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session?.token],
+  );
 
   function handleLogin(next: LoginSession) {
     saveSession(next);
@@ -153,7 +173,11 @@ export default function App() {
 
   return (
     <div style={page}>
-      {session ? <Shell session={session} onLogout={handleLogout} /> : <LoginForm onLogin={handleLogin} />}
+      {session && backend ? (
+        <Shell session={session} backend={backend} onLogout={handleLogout} />
+      ) : (
+        <LoginForm onLogin={handleLogin} />
+      )}
     </div>
   );
 }
