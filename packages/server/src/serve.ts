@@ -49,6 +49,9 @@ export interface ServeOptions {
   /** SQLite sessions file. Absent: in-memory sessions (tests, ephemeral dev). */
   sessionsFile?: string;
   sessionTtlMs?: number;
+  /** TLS cert/key files. Absent: plain HTTP. */
+  tlsCert?: string;
+  tlsKey?: string;
   /** Per-minute per-IP caps for the CPU-heavy SRP endpoints. */
   loginStartPerMin?: number;
   loginFinishPerMin?: number;
@@ -366,7 +369,14 @@ export async function serve(options: ServeOptions) {
     loginFinishPerMin: options.loginFinishPerMin,
     trustProxyHeader: options.trustProxyHeader,
   });
-  app.listen(options.port ?? 4000);
+  if (options.tlsCert && options.tlsKey) {
+    app.listen({
+      port: options.port ?? 4000,
+      tls: { cert: Bun.file(options.tlsCert), key: Bun.file(options.tlsKey) },
+    });
+  } else {
+    app.listen(options.port ?? 4000);
+  }
 
   const server = app.server!;
   /** Stop the HTTP server and every site fleet it booted. */

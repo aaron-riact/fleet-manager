@@ -457,4 +457,43 @@ describe("HTTP API", () => {
       server.stop(true);
     }
   });
+
+  test("serves HTTPS when cert and key are given", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fleet-tls-"));
+    const key = join(dir, "key.pem");
+    const cert = join(dir, "cert.pem");
+    const proc = Bun.spawnSync([
+      "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+      "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=localhost",
+    ]);
+    if (proc.exitCode !== 0) throw new Error("openssl unavailable for TLS test");
+    const record = await createVerifier("tls@cmr", "s3cret");
+    const usersFile = join(dir, "users.json");
+    writeFileSync(usersFile, serializeUsersFile([{ username: "tls@cmr", sites: ["coalescent"], ...record }]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({ name: "coalescent", nodes: [{ id: "a", x: 0, y: 0 }], links: [] }),
+    );
+    const { port, stop } = await serve({
+      port: 0,
+      usersFile,
+      sitesDir,
+      tlsCert: cert,
+      tlsKey: key,
+    });
+    try {
+      // Per-request, not NODE_TLS_REJECT_UNAUTHORIZED: that is process-wide
+      // and would silently disable certificate checking for every test
+      // running alongside this one.
+      const res = await fetch(`https://localhost:${port}/api/health`, {
+        tls: { rejectUnauthorized: false },
+      } as RequestInit);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+    } finally {
+      await stop();
+    }
+  });
 });
