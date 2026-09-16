@@ -12,6 +12,8 @@
     "dev:ui": "bun run --filter './packages/ui' dev",
     "build": "bun run --filter './packages/*' build",
     "test": "bun test packages/",
+    "test:fast": "bun test packages/core packages/ui packages/transport-memory packages/cli/test/users.test.ts packages/server/test/auth.test.ts packages/server/test/serve.test.ts packages/server/test/sqlite.test.ts packages/server/test/rateLimit.test.ts",
+    "test:integration": "bun test packages/transport-mqtt packages/vda packages/demo packages/cli/test/spawn.test.ts packages/server/test/sites.test.ts packages/server/test/loop.test.ts",
     "typecheck": "bun run --filter './packages/*' typecheck",
     "graferse:local": "node scripts/graferse-source.mjs local",
     "graferse:npm": "node scripts/graferse-source.mjs npm"
