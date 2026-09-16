@@ -31,7 +31,28 @@ export default function Director() {
   const fleetRef = useRef<DemoFleet | null>(null);
   const svcRef = useRef<Fleet | null>(null);
   const locksModel = useMemo(() => buildLocks(site as Site), []);
-  const [backend] = useState<MemoryBackend>(() => createMemoryBackend(site as Site));
+  const posesRef = useRef<Record<string, RobotPose>>({});
+  const [backend] = useState<MemoryBackend>(() =>
+    createMemoryBackend(site as Site, {
+      dispatchOrder: async (_site, input) => {
+        const svc = svcRef.current;
+        const fleet = fleetRef.current;
+        if (!svc || !fleet) throw new Error("fleet not booted yet");
+        const robot = fleet.robots.find((r) => r.id.serialNumber === input.serialNumber);
+        if (!robot) throw new Error(`unknown robot "${input.serialNumber}"`);
+        const pose = posesRef.current[input.serialNumber];
+        await svc.dispatch(
+          robot.id,
+          input.waypoints.map((w) => ({ nodeId: w.nodeId, x: w.x, y: w.y })),
+          {
+            ...(pose && Number.isFinite(pose.x) && Number.isFinite(pose.y)
+              ? { from: { x: pose.x, y: pose.y } }
+              : {}),
+          },
+        );
+      },
+    }),
+  );
   const [serials, setSerials] = useState<string[]>([]);
   const [poses, setPoses] = useState<Record<string, RobotPose>>({});
   const [orders, setOrders] = useState<ActiveOrder[]>([]);
@@ -89,6 +110,7 @@ export default function Director() {
       setSerials(fleet.robots.map((r) => r.id.serialNumber));
       await watchRobots(fleet.master, MANUFACTURER, (pose) => {
         if (cancelled) return;
+        posesRef.current = { ...posesRef.current, [pose.serialNumber]: pose };
         backend.emitPose(pose);
         setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
       });

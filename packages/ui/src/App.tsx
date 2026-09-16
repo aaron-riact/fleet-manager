@@ -5,6 +5,7 @@ import { createHttpBackend } from "./backend";
 import type { Backend, LivePose, OrderView } from "./backend";
 import type { LockSnapshot } from "@fleet-manager/core";
 import { FleetMap } from "./FleetMap";
+import { OrderComposer } from "./OrderComposer";
 import { RobotCards, buildCards } from "./RobotCards";
 import { theme } from "./theme";
 import type { LoginSession } from "./authClient";
@@ -249,6 +250,9 @@ export function Shell({
               />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {(site.locations ?? []).length > 0 && (
+                <OrderComposer site={site} siteName={site.name} backend={backend} poses={poses} />
+              )}
               <section>
                 <h2 style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: theme.textFaint, margin: "0 0 0.5rem" }}>
                   Robots · {cards.length}

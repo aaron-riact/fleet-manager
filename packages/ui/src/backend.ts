@@ -37,6 +37,8 @@ export interface DispatchInput {
   serialNumber: string;
   manufacturer?: string;
   waypoints: DispatchWaypoint[];
+  /** Robot's live pose for the off-graph approach leg (demo + spawns). */
+  from?: { x: number; y: number };
 }
 
 /**
