@@ -9,6 +9,8 @@ export interface MemoryBackend extends Backend {
 
 export interface MemoryBackendActions {
   dispatchOrder?(site: string, input: DispatchInput): Promise<void>;
+  parkRobot?(site: string, input: { serialNumber: string; spotId?: string }): Promise<{ spot: string }>;
+  cancelOrder?(site: string, input: { serialNumber: string }): Promise<void>;
 }
 
 /**
@@ -41,6 +43,14 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     dispatchOrder: async (site, input) => {
       if (!actions.dispatchOrder) throw new Error(`no dispatcher for site "${site}"`);
       await actions.dispatchOrder(site, input);
+    },
+    parkRobot: async (site, input) => {
+      if (!actions.parkRobot) throw new Error(`no dispatcher for site "${site}"`);
+      return actions.parkRobot(site, input);
+    },
+    cancelOrder: async (site, input) => {
+      if (!actions.cancelOrder) throw new Error(`no dispatcher for site "${site}"`);
+      await actions.cancelOrder(site, input);
     },
     emitPose: emit(poseListeners),
     emitLocks: emit(lockListeners),

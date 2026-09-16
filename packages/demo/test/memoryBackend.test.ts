@@ -52,4 +52,26 @@ describe("createMemoryBackend", () => {
     const bare = createMemoryBackend(site);
     await expect(bare.dispatchOrder("demo", input)).rejects.toThrow(/no dispatcher/);
   });
+
+  test("park and cancel delegate to actions, or fail clearly", async () => {
+    const calls: string[] = [];
+    const input = { serialNumber: "r1" };
+    const backend = createMemoryBackend(site, {
+      dispatchOrder: async () => {},
+      parkRobot: async (name, arg) => {
+        calls.push(`park:${name}:${arg.serialNumber}`);
+        return { spot: "p1" };
+      },
+      cancelOrder: async (name, arg) => {
+        calls.push(`cancel:${name}:${arg.serialNumber}`);
+      },
+    });
+    await expect(backend.parkRobot("demo", input)).resolves.toEqual({ spot: "p1" });
+    await expect(backend.cancelOrder("demo", input)).resolves.toBeUndefined();
+    expect(calls).toEqual(["park:demo:r1", "cancel:demo:r1"]);
+
+    const bare = createMemoryBackend(site);
+    await expect(bare.parkRobot("demo", input)).rejects.toThrow(/no dispatcher/);
+    await expect(bare.cancelOrder("demo", input)).rejects.toThrow(/no dispatcher/);
+  });
 });

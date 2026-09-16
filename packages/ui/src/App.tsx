@@ -257,7 +257,7 @@ export function Shell({
                 <h2 style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: theme.textFaint, margin: "0 0 0.5rem" }}>
                   Robots · {cards.length}
                 </h2>
-                <RobotCards cards={cards} />
+                <RobotCards cards={cards} backend={backend} siteName={site?.name} />
               </section>
             </div>
           </div>

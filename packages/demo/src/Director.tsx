@@ -32,6 +32,7 @@ export default function Director() {
   const svcRef = useRef<Fleet | null>(null);
   const locksModel = useMemo(() => buildLocks(site as Site), []);
   const posesRef = useRef<Record<string, RobotPose>>({});
+  const parkedRef = useRef<Record<string, string>>({});
   const [backend] = useState<MemoryBackend>(() =>
     createMemoryBackend(site as Site, {
       dispatchOrder: async (_site, input) => {
@@ -51,6 +52,33 @@ export default function Director() {
           },
         );
       },
+      parkRobot: async (_site, input) => {
+        const svc = svcRef.current;
+        const fleet = fleetRef.current;
+        if (!svc || !fleet) throw new Error("fleet not booted yet");
+        const robot = fleet.robots.find((r) => r.id.serialNumber === input.serialNumber);
+        if (!robot) throw new Error(`unknown robot "${input.serialNumber}"`);
+        const pose = posesRef.current[input.serialNumber];
+        const spots = (site as Site).parking ?? [];
+        const spot = input.spotId
+          ? spots.find((s) => s.id === input.spotId)
+          : freeSpot(spots, parkedRef.current, pose);
+        if (!spot) throw new Error("no free parking spot");
+        await svc.park(
+          robot.id,
+          spot,
+          pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) ? { from: pose } : {},
+        );
+        return { spot: spot.id };
+      },
+      cancelOrder: async (_site, input) => {
+        const svc = svcRef.current;
+        const fleet = fleetRef.current;
+        if (!svc || !fleet) throw new Error("fleet not booted yet");
+        const robot = fleet.robots.find((r) => r.id.serialNumber === input.serialNumber);
+        if (!robot) throw new Error(`unknown robot "${input.serialNumber}"`);
+        await svc.cancel(robot.id);
+      },
     }),
   );
   const [serials, setSerials] = useState<string[]>([]);
@@ -58,6 +86,7 @@ export default function Director() {
   const [orders, setOrders] = useState<ActiveOrder[]>([]);
   // parking spot id -> serial; idle robots live here, off the graph
   const [parked, setParked] = useState<Record<string, string>>({});
+  parkedRef.current = parked;
   const [log, setLog] = useState<string[]>([]);
   const [events, setEvents] = useState<string[]>([]);
   const [showAllEvents, setShowAllEvents] = useState(false);

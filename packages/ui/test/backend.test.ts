@@ -24,6 +24,30 @@ describe("createHttpBackend dispatch", () => {
       createHttpBackend("http://x", "t", fetchFn).dispatchOrder("coalescent", input),
     ).rejects.toThrow(/busy/);
   });
+
+  test("parks and cancels through their endpoints", async () => {
+    const seen: Array<[string, string, unknown]> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      seen.push([(init?.method ?? "GET"), url, JSON.parse((init?.body as string) ?? "{}")]);
+      const parked = url.endsWith("/park");
+      return new Response(JSON.stringify(parked ? { ok: true, spot: "p1" } : { ok: true }), { status: 200 });
+    }) as unknown as FetchFn;
+    const backend = createHttpBackend("http://x", "t", fetchFn);
+    await expect(backend.parkRobot("coalescent", { serialNumber: "r1" })).resolves.toEqual({ spot: "p1" });
+    await expect(backend.cancelOrder("coalescent", { serialNumber: "r1" })).resolves.toBeUndefined();
+    expect(seen.map(([method, url]) => `${method} ${url}`)).toEqual([
+      "POST http://x/api/sites/coalescent/park",
+      "POST http://x/api/sites/coalescent/orders/cancel",
+    ]);
+  });
+
+  test("park errors surface", async () => {
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ error: "no free parking spot" }), { status: 409 })) as unknown as FetchFn;
+    await expect(
+      createHttpBackend("http://x", "t", fetchFn).parkRobot("coalescent", { serialNumber: "r1" }),
+    ).rejects.toThrow(/no free parking/);
+  });
 });
 
 describe("createHttpBackend", () => {

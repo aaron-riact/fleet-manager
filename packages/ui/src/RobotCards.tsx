@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { robotStatus, statusColor, theme } from "./theme";
 import type { RobotStatus } from "./theme";
-import type { LivePose, OrderView } from "./backend";
+import type { Backend, LivePose, OrderView } from "./backend";
 import type { LockSnapshot } from "@fleet-manager/core";
 
 export interface RobotCardModel {
@@ -58,7 +58,53 @@ const cardStyle: React.CSSProperties = {
   backdropFilter: "blur(8px)",
 };
 
-export function RobotCards({ cards }: { cards: RobotCardModel[] }) {
+const actionButton: React.CSSProperties = {
+  padding: "0.25rem 0.6rem",
+  borderRadius: 999,
+  border: `1px solid ${theme.border}`,
+  background: "transparent",
+  color: theme.textDim,
+  cursor: "pointer",
+  fontSize: "0.72rem",
+};
+
+export function RobotCards({
+  cards,
+  backend,
+  siteName,
+}: {
+  cards: RobotCardModel[];
+  backend?: Backend;
+  siteName?: string;
+}) {
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  async function act(serialNumber: string, action: "park" | "cancel") {
+    if (!backend || !siteName) return;
+    setBusy((prev) => ({ ...prev, [serialNumber]: true }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[serialNumber];
+      return next;
+    });
+    try {
+      if (action === "park") await backend.parkRobot(siteName, { serialNumber });
+      else await backend.cancelOrder(siteName, { serialNumber });
+    } catch (e) {
+      setErrors((prev) => ({
+        ...prev,
+        [serialNumber]: e instanceof Error ? e.message : `${action} failed`,
+      }));
+    } finally {
+      setBusy((prev) => {
+        const next = { ...prev };
+        delete next[serialNumber];
+        return next;
+      });
+    }
+  }
+
   if (cards.length === 0) {
     return (
       <div style={cardStyle}>
@@ -115,6 +161,31 @@ export function RobotCards({ cards }: { cards: RobotCardModel[] }) {
                     transition: "width 0.4s",
                   }}
                 />
+              </div>
+            )}
+            {backend && siteName && (
+              <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.5rem" }}>
+                <button
+                  style={actionButton}
+                  disabled={!!busy[card.serialNumber]}
+                  onClick={() => void act(card.serialNumber, "park")}
+                >
+                  Park
+                </button>
+                {card.order && (
+                  <button
+                    style={actionButton}
+                    disabled={!!busy[card.serialNumber]}
+                    onClick={() => void act(card.serialNumber, "cancel")}
+                  >
+                    Cancel
+                  </button>
+                )}
+                {errors[card.serialNumber] && (
+                  <span style={{ color: theme.bad, fontSize: "0.72rem", alignSelf: "center" }}>
+                    {errors[card.serialNumber]}
+                  </span>
+                )}
               </div>
             )}
           </div>
