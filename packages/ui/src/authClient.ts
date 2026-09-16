@@ -1,6 +1,7 @@
 import { treaty } from "@elysiajs/eden";
 import type { FleetApi } from "@fleet-manager/server";
 import { srpClient } from "@fleet-manager/core";
+import type { SrpPair } from "@fleet-manager/core";
 import { errorMessage } from "./api.js";
 
 export interface LoginSession {
@@ -20,6 +21,7 @@ export async function login(
   username: string,
   password: string,
   fetchFn: FetchFn = fetch,
+  srp: SrpPair["client"] = srpClient,
 ): Promise<LoginSession> {
   const api = treaty<FleetApi>(baseUrl, { fetcher: fetchFn as typeof fetch });
 
@@ -30,9 +32,9 @@ export async function login(
     );
   }
   const { salt, serverEphemeral } = start.data;
-  const privateKey = await srpClient.derivePrivateKey(salt, username, password);
-  const ephemeral = srpClient.generateEphemeral();
-  const session = await srpClient.deriveSession(
+  const privateKey = await srp.derivePrivateKey(salt, username, password);
+  const ephemeral = srp.generateEphemeral();
+  const session = await srp.deriveSession(
     ephemeral.secret,
     serverEphemeral,
     salt,
@@ -49,7 +51,7 @@ export async function login(
       finish.data != null ? finish.data.error : errorMessage(finish.error, finish.status),
     );
   }
-  await srpClient.verifySession(ephemeral.public, session, finish.data.proof);
+  await srp.verifySession(ephemeral.public, session, finish.data.proof);
   return {
     token: finish.data.token,
     username: finish.data.username,

@@ -1,5 +1,5 @@
-import { srpServer } from "@fleet-manager/core";
-import type { UserRecord } from "@fleet-manager/core";
+import { createSrp, schemeFor } from "@fleet-manager/core";
+import type { SrpPair, UserRecord } from "@fleet-manager/core";
 import { MemorySessionStore } from "./sessions.js";
 import type { SessionStore } from "./sessions.js";
 
@@ -23,6 +23,8 @@ export interface AuthOptions {
   now?: () => number;
   newToken?: () => string;
   store?: SessionStore;
+  /** Matched SRP pair. Defaults to production parameters; tests inject small groups. */
+  srp?: SrpPair;
 }
 
 const DEFAULT_PENDING_TTL_MS = 5 * 60 * 1000;
@@ -41,6 +43,7 @@ export class Auth {
   private readonly now: () => number;
   private readonly newToken: () => string;
   private readonly store: SessionStore;
+  private readonly srp: SrpPair;
 
   constructor(
     private readonly users: UserRecord[],
@@ -52,6 +55,20 @@ export class Auth {
     this.now = options.now ?? Date.now;
     this.newToken = options.newToken ?? (() => globalThis.crypto.randomUUID());
     this.store = options.store ?? new MemorySessionStore();
+    this.srp = options.srp ?? createSrp();
+    // The record schema accepts any well-formed scheme tag so a future
+    // migration can read old files. The running server still has exactly
+    // one group, and a verifier from another one cannot authenticate —
+    // it would just fail every login with "incorrect password". Say so
+    // at boot instead, and refuse to start on a group we cannot verify.
+    const expected = schemeFor(this.srp.group);
+    const wrong = users.filter((u) => u.scheme !== expected);
+    if (wrong.length > 0) {
+      throw new Error(
+        `users ${wrong.map((u) => u.username).join(", ")} use ${wrong[0]!.scheme}, ` +
+          `but this server runs ${expected}; re-enrol them or start with the matching group`,
+      );
+    }
   }
 
   /** Step 1: client sends username, gets salt + server ephemeral. */
@@ -70,7 +87,7 @@ export class Auth {
         throw Object.assign(new Error("too many pending logins"), { status: 429 });
       }
     }
-    const ephemeral = await srpServer.generateEphemeral(user.verifier);
+    const ephemeral = await this.srp.server.generateEphemeral(user.verifier);
     await this.store.saveChallenge(ephemeral.public, {
       username,
       secret: ephemeral.secret,
@@ -91,7 +108,7 @@ export class Auth {
     }
     const user = this.users.find((u) => u.username === challenge.username);
     if (!user) throw new Error(`unknown user: "${challenge.username}"`);
-    const session = await srpServer.deriveSession(
+    const session = await this.srp.server.deriveSession(
       challenge.secret,
       input.clientEphemeral,
       user.salt,

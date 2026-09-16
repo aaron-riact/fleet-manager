@@ -1,14 +1,17 @@
 import { z } from "zod";
-import { SRP_SCHEME } from "./srp.js";
 
 /**
  * users.json — the user database. Plain JSON, validated at load.
  * No build step, no clipboard ritual: `fleet users add` writes it.
+ *
+ * The scheme tag pins the KDF generation for future migrations. The
+ * server treats verifiers opaquely (a wrong-group record fails closed
+ * at handshake time), so any well-formed tag loads.
  */
 export const UserRecordSchema = z.object({
   username: z.string().min(1),
   sites: z.array(z.string().min(1)).min(1),
-  scheme: z.literal(SRP_SCHEME),
+  scheme: z.string().regex(/^srp6a-\d+-sha256-v1$/, "unknown SRP scheme; expected e.g. srp6a-4096-sha256-v1"),
   salt: z.string().min(1),
   verifier: z.string().min(1),
 });

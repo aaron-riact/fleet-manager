@@ -115,4 +115,12 @@ describe("Auth", () => {
     const result = await login(auth, "alice@cmr", "s3cret");
     expect((await auth.me(result.token)).username).toBe("alice@cmr");
   });
+
+  test("a verifier from another SRP group is refused at construction", async () => {
+    const { users } = await setup();
+    // a record enrolled at test strength must not quietly load into a
+    // server running production parameters
+    const weak = [{ ...users[0]!, scheme: "srp6a-1024-sha256-v1" }];
+    expect(() => new Auth(weak)).toThrow(/runs srp6a-4096-sha256-v1/);
+  });
 });
