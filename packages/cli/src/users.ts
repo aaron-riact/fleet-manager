@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createVerifier, parseUsersFile, serializeUsersFile } from "@fleet-manager/core";
-import type { UserRecord } from "@fleet-manager/core";
+import type { PrimeGroup, UserRecord } from "@fleet-manager/core";
 
 export interface AddUserInput {
   username: string;
@@ -19,7 +19,11 @@ export function saveUsers(path: string, users: UserRecord[]): void {
 }
 
 /** Add a user (throws on duplicates or empty secrets). Returns the new list. */
-export async function addUser(existing: UserRecord[], input: AddUserInput): Promise<UserRecord[]> {
+export async function addUser(
+  existing: UserRecord[],
+  input: AddUserInput,
+  group?: PrimeGroup,
+): Promise<UserRecord[]> {
   const username = input.username.trim();
   if (!username) throw new Error("username must not be empty");
   if (!input.password) throw new Error("password must not be empty");
@@ -28,6 +32,6 @@ export async function addUser(existing: UserRecord[], input: AddUserInput): Prom
   if (existing.some((u) => u.username === username)) {
     throw new Error(`user already exists: "${username}"`);
   }
-  const { scheme, salt, verifier } = await createVerifier(username, input.password);
+  const { scheme, salt, verifier } = await createVerifier(username, input.password, group);
   return [...existing, { username, sites, scheme, salt, verifier }];
 }

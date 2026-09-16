@@ -32,7 +32,7 @@ Deps flow one way: `ui → server` types only, everything → `core`. `file:` ov
 
 ## Traps
 
-- SRP uses 4096-bit groups: auth tests take seconds each; flakes under parallel load are usually timing, rerun the file alone.
+- SRP runs 4096-bit in prod, 1024-bit in tests (`TEST_GROUP`, injected via `AuthOptions.srp` / `ServeOptions.srp` / `login()`'s param). One test pins the prod default; everything else is fast. Flakes under parallel load are usually timing — rerun the file alone.
 - `serve()` drops what it isn't given: check new options are forwarded (this bit us with `brokerUrl`).
 - Old processes squat on `:4000` (a previous `fm-vda5050` master did for days) — `lsof -ti :4000` before believing errors.
 - Sessions are in-memory unless `SESSIONS_FILE` is set; every restart logs everyone out otherwise.

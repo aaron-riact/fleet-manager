@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createVerifier } from "@fleet-manager/core";
+import { createSrp, createVerifier, TEST_GROUP } from "@fleet-manager/core";
 import { Auth } from "@fleet-manager/server";
 import { login } from "../src/authClient.js";
 
@@ -20,19 +20,23 @@ function stubbedFetch(auth: Auth): typeof fetch {
 }
 
 describe("authClient", () => {
+  const pair = createSrp(TEST_GROUP);
+  async function testAuth() {
+    const record = await createVerifier("ui@cmr", "s3cret", TEST_GROUP);
+    return new Auth([{ username: "ui@cmr", sites: ["coalescent"], ...record }], { srp: pair });
+  }
+
   test("full mutual-auth login against a real Auth backend", async () => {
-    const record = await createVerifier("ui@cmr", "s3cret");
-    const auth = new Auth([{ username: "ui@cmr", sites: ["coalescent"], ...record }]);
-    const session = await login("http://x", "ui@cmr", "s3cret", stubbedFetch(auth));
+    const auth = await testAuth();
+    const session = await login("http://x", "ui@cmr", "s3cret", stubbedFetch(auth), pair.client);
     expect(session).toMatchObject({ username: "ui@cmr", sites: ["coalescent"] });
     expect(typeof session.token).toBe("string");
     expect(await auth.me(session.token)).toEqual({ username: "ui@cmr", sites: ["coalescent"] });
   });
 
   test("wrong password fails", async () => {
-    const record = await createVerifier("ui@cmr", "s3cret");
-    const auth = new Auth([{ username: "ui@cmr", sites: ["coalescent"], ...record }]);
-    await expect(login("http://x", "ui@cmr", "wrong", stubbedFetch(auth))).rejects.toThrow();
+    const auth = await testAuth();
+    await expect(login("http://x", "ui@cmr", "wrong", stubbedFetch(auth), pair.client)).rejects.toThrow();
   });
 
   test("surfaces server errors", async () => {

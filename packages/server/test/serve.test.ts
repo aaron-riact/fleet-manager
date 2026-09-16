@@ -3,17 +3,18 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgvController, VirtualAgvAdapter } from "vda-5050-lib";
-import { createVerifier, serializeUsersFile, srpClient } from "@fleet-manager/core";
+import { serializeUsersFile } from "@fleet-manager/core";
+import { testLogin, testSrp, testUser } from "./helpers.js";
 import { attachMemoryTransport } from "@fleet-manager/vda";
 import { serve } from "../src/serve.js";
 
 async function boot(
   overrides: { loginStartPerMin?: number; trustProxyHeader?: boolean } = {},
 ) {
-  const record = await createVerifier("http@cmr", "s3cret");
+  const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
   const dir = mkdtempSync(join(tmpdir(), "fleet-srv-"));
   const file = join(dir, "users.json");
-  writeFileSync(file, serializeUsersFile([{ username: "http@cmr", sites: ["coalescent"], ...record }]));
+  writeFileSync(file, serializeUsersFile([user]));
   const sitesDir = join(dir, "sites");
   mkdirSync(sitesDir);
   writeFileSync(
@@ -28,6 +29,7 @@ async function boot(
     port: 0,
     usersFile: file,
     sitesDir,
+    srp: testSrp,
     ...overrides,
   });
   const base = `http://localhost:${port}`;
@@ -55,9 +57,9 @@ describe("HTTP API", () => {
       expect(preflight.status).toBe(204);
       expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
       const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
-      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
-      const eph = srpClient.generateEphemeral();
-      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
+      const key = await testSrp.client.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
+      const eph = testSrp.client.generateEphemeral();
+      const sess = await testSrp.client.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
       const step2 = await post("/api/login/finish", {
         serverEphemeral: step1.serverEphemeral,
         clientEphemeral: eph.public,
@@ -158,17 +160,7 @@ describe("HTTP API", () => {
   test("sites and map require auth and site access", async () => {
     const { post, base, server, stop } = await boot();
     try {
-      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
-      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
-      const eph = srpClient.generateEphemeral();
-      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
-      const { token } = await (
-        await post("/api/login/finish", {
-          serverEphemeral: step1.serverEphemeral,
-          clientEphemeral: eph.public,
-          proof: sess.proof,
-        })
-      ).json();
+      const token = await testLogin(post, "http@cmr", "s3cret");
       const authz = { authorization: `Bearer ${token}` };
 
       expect((await fetch(`${base}/api/sites`)).status).toBe(401);
@@ -190,17 +182,7 @@ describe("HTTP API", () => {
   test("streams emit baseline frames with query-token auth", async () => {
     const { post, base, server, contexts, stop } = await boot();
     try {
-      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
-      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
-      const eph = srpClient.generateEphemeral();
-      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
-      const { token } = await (
-        await post("/api/login/finish", {
-          serverEphemeral: step1.serverEphemeral,
-          clientEphemeral: eph.public,
-          proof: sess.proof,
-        })
-      ).json();
+      const token = await testLogin(post, "http@cmr", "s3cret");
 
       async function firstFrame(path: string): Promise<{ status: number; type: string | null; data: unknown }> {
         const res = await fetch(`${base}${path}?token=${encodeURIComponent(token)}`);
@@ -269,17 +251,7 @@ describe("HTTP API", () => {
   test("dispatch accepts orders, refuses busy robots", async () => {
     const { post, base, server, contexts } = await boot();
     try {
-      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
-      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
-      const eph = srpClient.generateEphemeral();
-      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
-      const { token } = await (
-        await post("/api/login/finish", {
-          serverEphemeral: step1.serverEphemeral,
-          clientEphemeral: eph.public,
-          proof: sess.proof,
-        })
-      ).json();
+      const token = await testLogin(post, "http@cmr", "s3cret");
       const authz = {
         authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -329,17 +301,7 @@ describe("HTTP API", () => {
   test("locks stream pushes on dispatch", async () => {
     const { post, base, server, contexts, stop } = await boot();
     try {
-      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
-      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
-      const eph = srpClient.generateEphemeral();
-      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
-      const { token } = await (
-        await post("/api/login/finish", {
-          serverEphemeral: step1.serverEphemeral,
-          clientEphemeral: eph.public,
-          proof: sess.proof,
-        })
-      ).json();
+      const token = await testLogin(post, "http@cmr", "s3cret");
 
       const res = await fetch(`${base}/api/sites/coalescent/locks/stream?token=${encodeURIComponent(token)}`);
       expect(res.status).toBe(200);
@@ -391,17 +353,7 @@ describe("HTTP API", () => {
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();
     try {
-      const step1 = await (await post("/api/login/start", { username: "http@cmr" })).json();
-      const key = await srpClient.derivePrivateKey(step1.salt, "http@cmr", "s3cret");
-      const eph = srpClient.generateEphemeral();
-      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "http@cmr", key);
-      const { token } = await (
-        await post("/api/login/finish", {
-          serverEphemeral: step1.serverEphemeral,
-          clientEphemeral: eph.public,
-          proof: sess.proof,
-        })
-      ).json();
+      const token = await testLogin(post, "http@cmr", "s3cret");
 
       const ctx = contexts.get("coalescent")!;
       const robot = new AgvController(
@@ -467,9 +419,9 @@ describe("HTTP API", () => {
       "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=localhost",
     ]);
     if (proc.exitCode !== 0) throw new Error("openssl unavailable for TLS test");
-    const record = await createVerifier("tls@cmr", "s3cret");
+    const user = await testUser("tls@cmr", "s3cret", ["coalescent"]);
     const usersFile = join(dir, "users.json");
-    writeFileSync(usersFile, serializeUsersFile([{ username: "tls@cmr", sites: ["coalescent"], ...record }]));
+    writeFileSync(usersFile, serializeUsersFile([user]));
     const sitesDir = join(dir, "sites");
     mkdirSync(sitesDir);
     writeFileSync(
@@ -480,6 +432,7 @@ describe("HTTP API", () => {
       port: 0,
       usersFile,
       sitesDir,
+      srp: testSrp,
       tlsCert: cert,
       tlsKey: key,
     });

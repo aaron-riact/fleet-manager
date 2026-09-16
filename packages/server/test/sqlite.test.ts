@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteSessionStore } from "../src/sqlite.js";
-import { createVerifier } from "@fleet-manager/core";
+import { testSrp, testUser } from "./helpers.js";
 import { Auth } from "../src/auth.js";
 
 describe("SqliteSessionStore", () => {
@@ -41,22 +41,22 @@ describe("SqliteSessionStore", () => {
   test("full login survives a store reopen", async () => {
     const dir = mkdtempSync(join(tmpdir(), "fleet-sqlite-"));
     const path = join(dir, "sessions.db");
-    const record = await createVerifier("alice@cmr", "s3cret");
-    const users = [{ username: "alice@cmr", sites: ["coalescent"], ...record }];
-    const { srpClient } = await import("@fleet-manager/core");
+    const user = await testUser("alice@cmr", "s3cret", ["coalescent"]);
+    const users = [user];
+    const { client } = testSrp;
 
     const store1 = new SqliteSessionStore(path);
-    const auth1 = new Auth(users, { store: store1 });
+    const auth1 = new Auth(users, { store: store1, srp: testSrp });
     const { salt, serverEphemeral } = await auth1.start("alice@cmr");
-    const key = await srpClient.derivePrivateKey(salt, "alice@cmr", "s3cret");
-    const eph = srpClient.generateEphemeral();
-    const sess = await srpClient.deriveSession(eph.secret, serverEphemeral, salt, "alice@cmr", key);
+    const key = await client.derivePrivateKey(salt, "alice@cmr", "s3cret");
+    const eph = client.generateEphemeral();
+    const sess = await client.deriveSession(eph.secret, serverEphemeral, salt, "alice@cmr", key);
     const { token } = await auth1.finish({ serverEphemeral, clientEphemeral: eph.public, proof: sess.proof });
     await store1.close();
 
     const store2 = new SqliteSessionStore(path);
     try {
-      const auth2 = new Auth(users, { store: store2 });
+      const auth2 = new Auth(users, { store: store2, srp: testSrp });
       expect(await auth2.me(token)).toEqual({ username: "alice@cmr", sites: ["coalescent"] });
     } finally {
       await store2.close();

@@ -1,6 +1,8 @@
 import { createSRPClient, createSRPServer } from "js-srp6a";
 import type { PrimeGroup } from "js-srp6a";
 
+export type { PrimeGroup };
+
 /**
  * Standard SRP-6a parameters for fleet-manager. Deliberately the library
  * defaults with nothing custom layered on top: the private key KDF is

@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { Aedes } from "aedes";
 import { createServer } from "node:net";
 import { AgvController, VirtualAgvAdapter } from "vda-5050-lib";
-import { createVerifier, serializeUsersFile, srpClient } from "@fleet-manager/core";
+import { serializeUsersFile } from "@fleet-manager/core";
 import { serve } from "../src/serve.js";
+import { testLogin, testSrp, testUser } from "./helpers.js";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,10 +52,10 @@ describe("full loop over MQTT", () => {
     if (address == null || typeof address === "string") throw new Error("no broker address");
     const brokerUrl = `mqtt://localhost:${address.port}`;
 
-    const record = await createVerifier("loop@cmr", "s3cret");
+    const user = await testUser("loop@cmr", "s3cret", ["coalescent"]);
     const dir = mkdtempSync(join(tmpdir(), "fleet-loop-"));
     const file = join(dir, "users.json");
-    writeFileSync(file, serializeUsersFile([{ username: "loop@cmr", sites: ["coalescent"], ...record }]));
+    writeFileSync(file, serializeUsersFile([user]));
     const sitesDir = join(dir, "sites");
     mkdirSync(sitesDir);
     writeFileSync(
@@ -74,6 +75,7 @@ describe("full loop over MQTT", () => {
       sitesDir,
       brokerUrl,
       interfaceName: "coalescent",
+      srp: testSrp,
     });
     const base = `http://localhost:${port}`;
     const robot = new AgvController(
@@ -99,17 +101,7 @@ describe("full loop over MQTT", () => {
           },
           body: JSON.stringify(body),
         });
-      const step1 = await (await post("/api/login/start", { username: "loop@cmr" })).json();
-      const key = await srpClient.derivePrivateKey(step1.salt, "loop@cmr", "s3cret");
-      const eph = srpClient.generateEphemeral();
-      const sess = await srpClient.deriveSession(eph.secret, step1.serverEphemeral, step1.salt, "loop@cmr", key);
-      const { token } = await (
-        await post("/api/login/finish", {
-          serverEphemeral: step1.serverEphemeral,
-          clientEphemeral: eph.public,
-          proof: sess.proof,
-        })
-      ).json();
+      const token = await testLogin(post, "loop@cmr", "s3cret");
 
       // subscribe before dispatching: grants and completion both push
       const locks = await StreamReader.open(`${base}/api/sites/coalescent/locks/stream?token=${token}`);
