@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchRobots } from "@fleet-manager/vda";
-import { freeSpot } from "./parking";
+import { freeSpot } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotPose } from "@fleet-manager/vda";

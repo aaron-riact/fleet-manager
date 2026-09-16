@@ -37,6 +37,50 @@ export const ParkingSpotSchema = z.object({
 
 export type ParkingSpot = z.infer<typeof ParkingSpotSchema>;
 
+/** A spot is taken when a robot sits on it (generous radius). */
+export const PARK_OCCUPIED_M = 0.75;
+
+/**
+ * Pick a free parking spot, preferring the one nearest (x, y).
+ * Occupancy maps spot id -> serial number.
+ */
+export function freeSpot(
+  spots: ParkingSpot[],
+  occupied: Map<string, unknown> | Record<string, unknown>,
+  near?: { x: number; y: number },
+): ParkingSpot | undefined {
+  const isOccupied = (id: string): boolean => {
+    if (occupied instanceof Map) return occupied.has(id);
+    return occupied[id] !== undefined;
+  };
+  const free = spots.filter((s) => !isOccupied(s.id));
+  if (free.length === 0) return undefined;
+  if (!near || !Number.isFinite(near.x) || !Number.isFinite(near.y)) return free[0];
+  return free.reduce((best, s) => {
+    const d = (s.x - near.x) ** 2 + (s.y - near.y) ** 2;
+    const b = (best.x - near.x) ** 2 + (best.y - near.y) ** 2;
+    return d < b ? s : best;
+  });
+}
+
+/** Spot ids occupied by poses (robots sitting on them). */
+export function occupiedSpots(
+  spots: ParkingSpot[],
+  poses: Iterable<{ x: number; y: number }>,
+): Record<string, true> {
+  const occupied: Record<string, true> = {};
+  for (const spot of spots) {
+    for (const pose of poses) {
+      if (!Number.isFinite(pose.x) || !Number.isFinite(pose.y)) continue;
+      if (Math.hypot(spot.x - pose.x, spot.y - pose.y) < PARK_OCCUPIED_M) {
+        occupied[spot.id] = true;
+        break;
+      }
+    }
+  }
+  return occupied;
+}
+
 /**
  * Stations where work happens: pickups, drops, or both. Positions are
  * free coordinates (usually near a graph node, drawn as their own

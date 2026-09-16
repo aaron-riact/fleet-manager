@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseSite } from "../src/site.js";
+import { freeSpot, occupiedSpots, parseSite } from "../src/site.js";
 
 const loop = {
   name: "demo-loop",
@@ -95,5 +95,20 @@ describe("site schema", () => {
     expect(() =>
       parseSite(JSON.stringify({ name: "s", nodes, links: [], parking: [{ id: "p1", x: 1, y: 1, entry: "ghost" }] })),
     ).toThrow(/unique with known entry nodes/);
+  });
+
+  test("freeSpot prefers nearest free; occupiedSpots reads poses", () => {
+    const spots = [
+      { id: "p1", x: 0, y: 0 },
+      { id: "p2", x: 10, y: 0 },
+    ];
+    expect(freeSpot(spots, new Map(), { x: 9, y: 1 })?.id).toBe("p2");
+    expect(freeSpot(spots, new Map([["p2", "r1"]]), { x: 9, y: 1 })?.id).toBe("p1");
+    expect(freeSpot(spots, new Map([["p1", "a"], ["p2", "b"]]))).toBeUndefined();
+    expect(freeSpot(spots, {})?.id).toBe("p1");
+
+    expect(occupiedSpots(spots, [{ x: 0.2, y: 0.1 }])).toEqual({ p1: true });
+    expect(occupiedSpots(spots, [{ x: 5, y: 5 }])).toEqual({});
+    expect(occupiedSpots(spots, [{ x: Number.NaN, y: 0 }])).toEqual({});
   });
 });

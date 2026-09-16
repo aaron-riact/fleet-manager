@@ -9,7 +9,11 @@ import { attachMemoryTransport } from "@fleet-manager/vda";
 import { serve } from "../src/serve.js";
 
 async function boot(
-  overrides: { loginStartPerMin?: number; trustProxyHeader?: boolean } = {},
+  overrides: {
+    loginStartPerMin?: number;
+    trustProxyHeader?: boolean;
+    poseTtlMs?: number;
+  } = {},
 ) {
   const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
   const dir = mkdtempSync(join(tmpdir(), "fleet-srv-"));
@@ -349,6 +353,126 @@ describe("HTTP API", () => {
       await stop();
     }
   });
+
+  test("park assigns the nearest free spot, cancel ends tours", async () => {
+    const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
+    const dir = mkdtempSync(join(tmpdir(), "fleet-park-"));
+    const file = join(dir, "users.json");
+    writeFileSync(file, serializeUsersFile([user]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({
+        name: "coalescent",
+        nodes: [
+          { id: "a", x: 0, y: 0 },
+          { id: "b", x: 10, y: 0 },
+        ],
+        links: [{ source: "a", destination: "b", bidirectional: true }],
+        parking: [
+          { id: "p1", x: 1, y: 1, entry: "a" },
+          { id: "p2", x: 9, y: 1, entry: "b" },
+        ],
+      }),
+    );
+    const { server, port, contexts } = await serve({
+      port: 0,
+      usersFile: file,
+      sitesDir,
+      srp: testSrp,
+    });
+    const base = `http://localhost:${port}`;
+    const post = async (path: string, body: unknown, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const ctx = contexts.get("coalescent")!;
+    const robot = new AgvController(
+      { manufacturer: "RobotCompany", serialNumber: "park-1" },
+      {
+        interfaceName: "coalescent",
+        vdaVersion: "2.0.0",
+        transport: { brokerUrl: "mqtt://memory" },
+        topicObjectValidation: { inbound: false, outbound: false },
+      },
+      { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+      { vehicleSpeed: 2, initialPosition: { mapId: "local", x: 0, y: 0, theta: 0, lastNodeId: "0" } },
+    );
+    attachMemoryTransport(robot, ctx.hub);
+    await robot.start();
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      const authz = { authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      const park = (body: unknown, headers: Record<string, string> = authz) =>
+        fetch(`${base}/api/sites/coalescent/park`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+      const cancel = (body: unknown) =>
+        fetch(`${base}/api/sites/coalescent/orders/cancel`, {
+          method: "POST",
+          headers: authz,
+          body: JSON.stringify(body),
+        });
+
+      // unknown robot and bad bodies fail before any driving
+      expect((await park({ serialNumber: "ghost" })).status).toBe(404);
+      expect((await park({})).status).toBe(400);
+      expect((await park({ serialNumber: "park-1" }, { "Content-Type": "application/json" })).status).toBe(401);
+      expect((await cancel({ serialNumber: "ghost" })).status).toBe(404);
+      expect((await cancel({})).status).toBe(400);
+
+      // an unknown site without a token is 401, not 404: answering 404
+      // first would let anyone enumerate site names
+      for (const path of ["park", "orders/cancel"]) {
+        const res = await fetch(`${base}/api/sites/ghost-site/${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ serialNumber: "park-1" }),
+        });
+        expect(res.status).toBe(401);
+      }
+
+      // wait for the pose, then a long tour stays in flight for the cancel
+      const deadline = Date.now() + 10_000;
+      while (!ctx.poses.has("park-1") && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const tour = await post(
+        "/api/sites/coalescent/orders",
+        {
+          serialNumber: "park-1",
+          waypoints: [
+            { nodeId: "a", x: 0, y: 0 },
+            { nodeId: "b", x: 10, y: 0 },
+            { nodeId: "a", x: 0, y: 0 },
+            { nodeId: "b", x: 10, y: 0 },
+          ],
+        },
+        token,
+      );
+      expect(tour.status).toBe(200);
+      expect((await cancel({ serialNumber: "park-1" })).status).toBe(200);
+      expect((await cancel({ serialNumber: "park-1" })).status).toBe(404);
+      expect(ctx.locks.snapshot().nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+
+      // cancelled robot parks wherever it stopped
+      const parked = await (await park({ serialNumber: "park-1" })).json();
+      expect(parked.ok).toBe(true);
+      expect(["p1", "p2"]).toContain(parked.spot);
+    } finally {
+      await robot.stop();
+      for (const [, c] of contexts) await c.master.stop();
+      server.stop(true);
+    }
+  }, 90_000);
 
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();

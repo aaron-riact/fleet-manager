@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { bootSiteFleet, watchRobots } from "@fleet-manager/vda";
 import type { ActiveOrder, RobotPose, SiteFleet } from "@fleet-manager/vda";
+import { freeSpot, occupiedSpots } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
@@ -47,6 +48,8 @@ export interface ServeOptions {
   interfaceName?: string;
   /** Manufacturer for dispatch requests that omit one. */
   defaultManufacturer?: string;
+  /** How long a pose still describes where a robot is. Default 30s. */
+  poseTtlMs?: number;
   /** SQLite sessions file. Absent: in-memory sessions (tests, ephemeral dev). */
   sessionsFile?: string;
   sessionTtlMs?: number;
@@ -141,17 +144,52 @@ function fanOut<T>(sinks: Set<(value: T) => void>, send: (value: T) => void): ()
   };
 }
 
+/**
+ * A pose plus when it landed. A robot that stopped reporting is not
+ * where it was last seen — it is gone — so anything that reasons about
+ * where robots *are* has to be able to tell the two apart.
+ */
+export interface TrackedPose extends RobotPose {
+  seenAt: number;
+}
+
+/** How long a pose is taken as describing where a robot currently is. */
+export const DEFAULT_POSE_TTL_MS = 30_000;
+
+/** Whether a pose still describes where the robot is, as of `now`. */
+export function isFresh(pose: TrackedPose, now: number, ttlMs: number): boolean {
+  return now - pose.seenAt < ttlMs;
+}
+
+/** Poses that arrived recently enough to still describe the present. */
+export function freshPoses(
+  poses: Iterable<TrackedPose>,
+  now: number,
+  ttlMs: number,
+): TrackedPose[] {
+  return [...poses].filter((p) => isFresh(p, now, ttlMs));
+}
+
 /** Live per-site fleet: locks, dispatcher, and stream fan-out. */
 export interface SiteContext extends SiteFleet {
   lockSubs: Set<(snapshot: LockSnapshot) => void>;
   orderSubs: Set<(orders: ActiveOrder[]) => void>;
   poseSubs: Set<(pose: RobotPose) => void>;
+  /** Last known pose per robot (drives parking without a tracker). */
+  /** Latest pose per robot, with the time it arrived. See TrackedPose. */
+  poses: Map<string, TrackedPose>;
 }
 
 export async function buildSiteContexts(
   sites: Map<string, Site>,
-  options: { brokerUrl?: string; interfaceName?: string; log?: (line: string) => void } = {},
+  options: {
+    brokerUrl?: string;
+    interfaceName?: string;
+    log?: (line: string) => void;
+    poseTtlMs?: number;
+  } = {},
 ): Promise<Map<string, SiteContext>> {
+  const poseTtlMs = options.poseTtlMs ?? DEFAULT_POSE_TTL_MS;
   if (options.interfaceName && sites.size > 1) {
     throw new Error(
       `interfaceName overrides every site, so ${sites.size} sites would share one VDA topic namespace; ` +
@@ -166,6 +204,7 @@ export async function buildSiteContexts(
     const lockSubs = new Set<(snapshot: LockSnapshot) => void>();
     const orderSubs = new Set<(orders: ActiveOrder[]) => void>();
     const poseSubs = new Set<(pose: RobotPose) => void>();
+    const poses = new Map<string, TrackedPose>();
     const fleet = await bootSiteFleet(
       site,
       interfaceName,
@@ -185,6 +224,13 @@ export async function buildSiteContexts(
     // Keep the unsubscribe: a discarded one leaves the pose subscription
     // live on a master the caller thinks it has stopped.
     const stopPoses = await watchRobots(fleet.master, undefined, (pose) => {
+      const seenAt = Date.now();
+      poses.set(pose.serialNumber, { ...pose, seenAt });
+      // Drop robots that stopped reporting, so the map cannot grow for
+      // the life of the process and stale entries cannot hold a spot.
+      for (const [serial, tracked] of poses) {
+        if (!isFresh(tracked, seenAt, poseTtlMs)) poses.delete(serial);
+      }
       for (const send of [...poseSubs]) send(pose);
     });
     log(`site ${name}: interface ${interfaceName} via ${via}`);
@@ -193,6 +239,7 @@ export async function buildSiteContexts(
       lockSubs,
       orderSubs,
       poseSubs,
+      poses,
       stop: async () => {
         stopPoses();
         await fleet.stop();
@@ -222,9 +269,11 @@ export function buildApp(
     loginStartPerMin?: number;
     loginFinishPerMin?: number;
     trustProxyHeader?: boolean;
+    poseTtlMs?: number;
   } = {},
 ) {
   const defaultManufacturer = options.defaultManufacturer ?? "RobotCompany";
+  const poseTtlMs = options.poseTtlMs ?? DEFAULT_POSE_TTL_MS;
   const trustProxyHeader = options.trustProxyHeader ?? false;
   const startLimiter = new RateLimiter({ limit: options.loginStartPerMin ?? 30, windowMs: 60_000 });
   const finishLimiter = new RateLimiter({ limit: options.loginFinishPerMin ?? 60, windowMs: 60_000 });
@@ -302,6 +351,69 @@ export function buildApp(
       await auth.logout(bearerFromHeaders(headers));
       return { ok: true };
     })
+    .post("/api/sites/:name/orders/cancel", async ({ headers, params, body }) => {
+      // Authenticate first: a 404 before the token check would let anyone
+      // enumerate site names.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const serialNumber = (body as { serialNumber?: unknown } | null)?.serialNumber;
+      if (typeof serialNumber !== "string" || !serialNumber) {
+        throw Object.assign(new Error("serialNumber required"), { status: 400 });
+      }
+      // The robot's own reported maker, not a guess: a fleet with two
+      // makers would otherwise cancel against the wrong topic.
+      const manufacturer = ctx.poses.get(serialNumber)?.manufacturer ?? defaultManufacturer;
+      try {
+        await ctx.fleet.cancel({ manufacturer, serialNumber });
+      } catch (error: unknown) {
+        if (/no active order/.test((error as Error).message)) {
+          throw Object.assign(error as object, { status: 404 });
+        }
+        throw error;
+      }
+      return { ok: true };
+    })
+    .post("/api/sites/:name/park", async ({ headers, params, body }) => {
+      // Authenticate first: a 404 before the token check would let anyone
+      // enumerate site names.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const input = (body ?? {}) as { serialNumber?: unknown; spotId?: unknown };
+      if (typeof input.serialNumber !== "string" || !input.serialNumber) {
+        throw Object.assign(new Error("serialNumber required"), { status: 400 });
+      }
+      const now = Date.now();
+      const pose = ctx.poses.get(input.serialNumber);
+      if (!pose || !isFresh(pose, now, poseTtlMs) || !Number.isFinite(pose.x) || !Number.isFinite(pose.y)) {
+        throw Object.assign(new Error("no recent pose for robot"), { status: 404 });
+      }
+      const spots = ctx.site.parking ?? [];
+      const spot =
+        typeof input.spotId === "string"
+          ? spots.find((s) => s.id === input.spotId)
+          : freeSpot(
+              spots,
+              // Only robots reporting now hold a spot. Counting the ones
+              // that went offline refuses spots that are actually free.
+              occupiedSpots(spots, freshPoses(ctx.poses.values(), now, poseTtlMs)),
+              pose,
+            );
+      if (!spot) throw Object.assign(new Error("no free parking spot"), { status: 409 });
+      ctx.fleet
+        .park(
+          { manufacturer: pose.manufacturer, serialNumber: input.serialNumber },
+          spot,
+          { from: pose },
+        )
+        .catch((error: unknown) => console.warn("park failed", error));
+      return { ok: true, spot: spot.id };
+    })
     .post("/api/sites/:name/orders", async ({ headers, params, body }) => {
       // Authenticate first: a 404 before the token check would let anyone
       // enumerate site names.
@@ -366,9 +478,11 @@ export async function serve(options: ServeOptions) {
   const contexts = await buildSiteContexts(loadSites(options.sitesDir ?? "data/seed/sites"), {
     brokerUrl: options.brokerUrl,
     interfaceName: options.interfaceName,
+    poseTtlMs: options.poseTtlMs,
   });
   const app = buildApp(auth, contexts, {
     defaultManufacturer: options.defaultManufacturer,
+    poseTtlMs: options.poseTtlMs,
     loginStartPerMin: options.loginStartPerMin,
     loginFinishPerMin: options.loginFinishPerMin,
     trustProxyHeader: options.trustProxyHeader,
