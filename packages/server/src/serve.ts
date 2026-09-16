@@ -9,6 +9,7 @@ import { MemorySessionStore } from "./sessions.js";
 import type { SessionStore } from "./sessions.js";
 import { SqliteSessionStore } from "./sqlite.js";
 import { RateLimiter } from "./rateLimit.js";
+import type { SrpPair } from "@fleet-manager/core";
 
 /**
  * Rate-limit bucket for a request. X-Forwarded-For is set by the client
@@ -49,6 +50,8 @@ export interface ServeOptions {
   /** SQLite sessions file. Absent: in-memory sessions (tests, ephemeral dev). */
   sessionsFile?: string;
   sessionTtlMs?: number;
+  /** Matched SRP pair. Defaults to production parameters; tests inject small groups. */
+  srp?: SrpPair;
   /** TLS cert/key files. Absent: plain HTTP. */
   tlsCert?: string;
   tlsKey?: string;
@@ -354,6 +357,7 @@ export async function serve(options: ServeOptions) {
     store,
     sessionTtlMs: options.sessionTtlMs,
     maxPendingChallenges: options.maxPendingChallenges,
+    srp: options.srp,
   });
   const purged = await auth.purge();
   if (purged.challenges > 0 || purged.sessions > 0) {
