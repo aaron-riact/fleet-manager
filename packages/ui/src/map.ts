@@ -1,4 +1,5 @@
-import type { MapNode, Site } from "@fleet-manager/core";
+import type { MapNode, Site, SiteLocation, SitePose } from "@fleet-manager/core";
+import { theme } from "./theme";
 
 export interface Bounds {
   minX: number;
@@ -7,17 +8,27 @@ export interface Bounds {
   maxY: number;
 }
 
-/** Bounding box of a site's nodes (y-up meters). */
-export function boundsOf(site: Pick<Site, "nodes">): Bounds {
+/**
+ * Bounding box of everything the map draws (y-up meters) — nodes plus
+ * parking spots and station poses. Nodes alone would clip anything that
+ * sits off the graph, which is exactly where stations tend to be.
+ */
+export function boundsOf(site: Pick<Site, "nodes"> & Partial<Pick<Site, "parking" | "locations">>): Bounds {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const n of site.nodes) {
-    minX = Math.min(minX, n.x);
-    minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x);
-    maxY = Math.max(maxY, n.y);
+  const include = (x: number, y: number) => {
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  for (const n of site.nodes) include(n.x, n.y);
+  for (const p of site.parking ?? []) include(p.x, p.y);
+  for (const l of site.locations ?? []) {
+    if (l.pickPose) include(l.pickPose.x, l.pickPose.y);
+    if (l.dropPose) include(l.dropPose.x, l.dropPose.y);
   }
   return { minX, minY, maxX, maxY };
 }
@@ -37,4 +48,51 @@ export function viewBoxFor(bounds: Bounds, pad = 1): string {
 /** Index nodes by id for link resolution. */
 export function indexNodes(nodes: MapNode[]): Map<string, MapNode> {
   return new Map(nodes.map((n) => [n.id, n]));
+}
+
+const ZONE_PALETTE = [theme.accent, theme.ok, theme.warn, theme.hold] as const;
+
+/** Deterministic color per zone name (stable across renders). */
+export function zoneColor(zone: string | undefined): string {
+  if (!zone) return theme.textDim;
+  let hash = 0;
+  for (let i = 0; i < zone.length; i++) {
+    hash = (hash * 31 + zone.charCodeAt(i)) >>> 0;
+  }
+  return ZONE_PALETTE[hash % ZONE_PALETTE.length]!;
+}
+
+/**
+ * The poses a station is drawn at. A station that picks and drops in
+ * different places gets a marker for each; one that uses a single pose
+ * for both gets one marker, not two stacked on top of each other.
+ */
+export function stationPoses(
+  location: SiteLocation,
+): Array<{ kind: "pick" | "drop"; pose: SitePose }> {
+  const { pickPose, dropPose } = location;
+  if (pickPose && dropPose) {
+    if (pickPose.x === dropPose.x && pickPose.y === dropPose.y) {
+      return [{ kind: "pick", pose: pickPose }];
+    }
+    return [
+      { kind: "pick", pose: pickPose },
+      { kind: "drop", pose: dropPose },
+    ];
+  }
+  if (pickPose) return [{ kind: "pick", pose: pickPose }];
+  if (dropPose) return [{ kind: "drop", pose: dropPose }];
+  return [];
+}
+
+/** Group station locations by zone (unzoned under ""). */
+export function groupByZone(locations: SiteLocation[]): Map<string, SiteLocation[]> {
+  const groups = new Map<string, SiteLocation[]>();
+  for (const location of locations) {
+    const key = location.zone ?? "";
+    const list = groups.get(key) ?? [];
+    list.push(location);
+    groups.set(key, list);
+  }
+  return groups;
 }

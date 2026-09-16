@@ -8,5 +8,5 @@ export { robotStatus, statusColor, theme } from "./theme.js";
 export type { RobotSnapshot, RobotStatus } from "./theme.js";
 export { createHttpBackend } from "./backend.js";
 export type { Backend, EventSourceFactory, LivePose, OrderView, Unsubscribe } from "./backend.js";
-export { boundsOf, indexNodes, toSvg, viewBoxFor } from "./map.js";
+export { boundsOf, groupByZone, indexNodes, stationPoses, toSvg, viewBoxFor, zoneColor } from "./map.js";
 export type { Bounds } from "./map.js";

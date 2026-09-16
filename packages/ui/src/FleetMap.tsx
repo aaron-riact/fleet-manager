@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import type { LockSnapshot, ParkingSpot, Site } from "@fleet-manager/core";
-import { boundsOf, indexNodes, toSvg, viewBoxFor } from "./map";
+import { boundsOf, groupByZone, indexNodes, stationPoses, toSvg, viewBoxFor, zoneColor } from "./map";
 
 export interface RobotDot {
   serialNumber: string;
@@ -153,6 +153,42 @@ export function FleetMap({
               <text x={p.x} y={(p.y + s + 0.3).toFixed(3)} textAnchor="middle" fontSize={0.28} fill="#8b949e">
                 {spot.id}
               </text>
+            </g>
+          );
+        })}
+      </g>
+      <g id="locations">
+        {[...groupByZone(site.locations ?? [])].map(([zone, locations]) => {
+          const color = zoneColor(zone || undefined);
+          return (
+            <g key={zone || "unzoned"} id={`zone-${zone || "unzoned"}`}>
+              {locations.map((location) =>
+                // pick and drop can sit apart; one marker each so the map
+                // shows where a robot is actually sent
+                stationPoses(location).map(({ kind, pose }) => {
+                  const p = toSvg(pose.x, pose.y, bounds);
+                  const s = 0.28;
+                  return (
+                    <g key={`${location.id}-${kind}`} id={`loc-${location.id}-${kind}`}>
+                      <polygon
+                        points={`${p.x},${(p.y - s).toFixed(3)} ${(p.x + s).toFixed(3)},${p.y} ${p.x},${(p.y + s).toFixed(3)} ${(p.x - s).toFixed(3)},${p.y}`}
+                        fill="transparent"
+                        stroke={color}
+                        strokeWidth={0.06}
+                      />
+                      <text
+                        x={p.x}
+                        y={(p.y + s + 0.35).toFixed(3)}
+                        textAnchor="middle"
+                        fontSize={0.28}
+                        fill={color}
+                      >
+                        {location.name ?? location.id}
+                      </text>
+                    </g>
+                  );
+                }),
+              )}
             </g>
           );
         })}
