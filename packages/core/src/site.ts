@@ -37,12 +37,40 @@ export const ParkingSpotSchema = z.object({
 
 export type ParkingSpot = z.infer<typeof ParkingSpotSchema>;
 
+/**
+ * Stations where work happens: pickups, drops, or both. Positions are
+ * free coordinates (usually near a graph node, drawn as their own
+ * marker). Zones group stations for tinting and dispatch filtering.
+ */
+export const SitePoseSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  theta: z.number().finite().optional(),
+});
+
+export type SitePose = z.infer<typeof SitePoseSchema>;
+
+export const SiteLocationSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1).optional(),
+    zone: z.string().min(1).optional(),
+    pickPose: SitePoseSchema.optional(),
+    dropPose: SitePoseSchema.optional(),
+  })
+  .refine((l) => l.pickPose !== undefined || l.dropPose !== undefined, {
+    message: "location needs a pick pose, a drop pose, or both",
+  });
+
+export type SiteLocation = z.infer<typeof SiteLocationSchema>;
+
 export const SiteSchema = z
   .object({
     name: z.string().min(1),
     nodes: z.array(MapNodeSchema).min(1),
     links: z.array(MapLinkSchema),
     parking: z.array(ParkingSpotSchema).optional(),
+    locations: z.array(SiteLocationSchema).optional(),
   })
   .refine(
     (site) => {
@@ -52,9 +80,16 @@ export const SiteSchema = z
       const parking = site.parking ?? [];
       if (!parking.every((p) => !ids.has(p.id))) return false;
       // entry links must land on known nodes
-      return parking.every((p) => !p.entry || ids.has(p.entry));
+      if (!parking.every((p) => !p.entry || ids.has(p.entry))) return false;
+      // locations are addressable like nodes: no id collisions anywhere
+      const taken = new Set([...ids, ...parking.map((p) => p.id)]);
+      for (const location of site.locations ?? []) {
+        if (taken.has(location.id)) return false;
+        taken.add(location.id);
+      }
+      return true;
     },
-    { message: "links must reference known nodes; parking ids must not collide; entries must reference known nodes" },
+    { message: "links must reference known nodes; parking and location ids must be unique with known entry nodes" },
   );
 
 export type Site = z.infer<typeof SiteSchema>;

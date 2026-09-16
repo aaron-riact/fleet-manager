@@ -36,6 +36,54 @@ describe("site schema", () => {
     expect(() => parseSite(JSON.stringify({ ...loop, parking: [{ id: "a", x: 5, y: 4 }] }))).toThrow();
   });
 
+  test("locations need a pose and a unique id", () => {
+    const base = {
+      name: "s",
+      nodes: [
+        { id: "a", x: 0, y: 0 },
+        { id: "b", x: 5, y: 0 },
+      ],
+      links: [],
+    };
+    const good = {
+      ...base,
+      locations: [
+        { id: "dock-1", name: "Dock 1", zone: "docks", pickPose: { x: 0, y: 0 }, dropPose: { x: 5, y: 0 } },
+        { id: "bay-1", pickPose: { x: 1, y: 1 } },
+      ],
+    };
+    expect(parseSite(JSON.stringify(good)).locations).toHaveLength(2);
+    expect(parseSite(JSON.stringify(base)).locations).toBeUndefined();
+    // no poses at all
+    expect(() => parseSite(JSON.stringify({ ...base, locations: [{ id: "x" }] }))).toThrow(/pick pose/);
+    // collides with a node
+    expect(() =>
+      parseSite(JSON.stringify({ ...base, locations: [{ id: "a", pickPose: { x: 0, y: 0 } }] })),
+    ).toThrow(/unique/);
+    // collides with parking
+    expect(() =>
+      parseSite(
+        JSON.stringify({
+          ...base,
+          parking: [{ id: "p1", x: 1, y: 1 }],
+          locations: [{ id: "p1", pickPose: { x: 2, y: 2 } }],
+        }),
+      ),
+    ).toThrow(/unique/);
+    // two locations sharing an id
+    expect(() =>
+      parseSite(
+        JSON.stringify({
+          ...base,
+          locations: [
+            { id: "dup", pickPose: { x: 0, y: 0 } },
+            { id: "dup", dropPose: { x: 5, y: 0 } },
+          ],
+        }),
+      ),
+    ).toThrow(/unique/);
+  });
+
   test("parking entry must reference a known node", () => {
     const nodes = [
       { id: "a", x: 0, y: 0 },
@@ -46,6 +94,6 @@ describe("site schema", () => {
     ).toHaveLength(1);
     expect(() =>
       parseSite(JSON.stringify({ name: "s", nodes, links: [], parking: [{ id: "p1", x: 1, y: 1, entry: "ghost" }] })),
-    ).toThrow(/entries must reference/);
+    ).toThrow(/unique with known entry nodes/);
   });
 });
