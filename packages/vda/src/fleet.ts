@@ -1,7 +1,7 @@
-import { MasterController } from "vda-5050-lib";
-import type { AgvId, Headerless, Order } from "vda-5050-lib";
+import { ActionStatus, BlockingType, MasterController } from "vda-5050-lib";
+import type { AgvId, Headerless, InstantActions, Order } from "vda-5050-lib";
 import { OFF_GRAPH_PREFIX } from "@fleet-manager/core";
-import type { FleetLocks, LockSnapshot } from "@fleet-manager/core";
+import type { FleetLocks, LockSnapshot, PathLocker } from "@fleet-manager/core";
 
 export interface FleetWaypoint {
   nodeId: string;
@@ -106,6 +106,8 @@ const APPROACH_THRESHOLD_M = 0.4;
  */
 export class Fleet {
   private readonly activeOrders = new Map<string, ActiveOrder>();
+  private readonly pathLockers = new Map<string, PathLocker>();
+  private readonly cancelled = new Set<string>();
 
   constructor(
     private readonly master: MasterController,
@@ -282,6 +284,15 @@ export class Fleet {
         },
         onOrderProcessed: (error: unknown, _cancelled: boolean, active: boolean) => {
           if (active) return;
+          this.pathLockers.delete(serial);
+          if (this.cancelled.has(serial)) {
+            this.cancelled.delete(serial);
+            this.activeOrders.delete(serial);
+            this.emitOrders();
+            this.emit();
+            reject(new Error(`order cancelled for robot "${serial}"`));
+            return;
+          }
           // Ended off-graph: we hold nothing on the map. Otherwise keep the
           // node we sit on, so nobody routes through us while we idle.
           if (opts.exits) locker.clearAllLocks();
@@ -298,6 +309,7 @@ export class Fleet {
         releaseAllowed(nextNodes.map((n) => n.index));
         this.emit();
       });
+      this.pathLockers.set(serial, granting);
 
       this.master
         .assignOrder(agvId, order, callbacks as never)
@@ -312,10 +324,54 @@ export class Fleet {
           } catch {
             /* already clean */
           }
+          this.pathLockers.delete(serial);
           this.activeOrders.delete(serial);
           this.emitOrders();
           reject(error);
         });
     });
+  }
+
+  /**
+   * Cancel the active order via the VDA cancelOrder action. The AGV
+   * stops, all path locks release, and the in-flight dispatch rejects.
+   * Throws when the robot has no active order.
+   */
+  async cancel(agvId: AgvId): Promise<void> {
+    const serial = agvId.serialNumber ?? "unknown";
+    const granting = this.pathLockers.get(serial);
+    if (!granting || !this.activeOrders.has(serial)) {
+      throw new Error(`no active order for robot "${serial}"`);
+    }
+    this.cancelled.add(serial);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.master
+          .initiateInstantActions(
+            agvId,
+            {
+              actions: [
+                {
+                  actionId: this.master.createUuid(),
+                  actionDescription: "Cancel running order",
+                  actionType: "cancelOrder",
+                  blockingType: BlockingType.Hard,
+                },
+              ],
+            } as unknown as Headerless<InstantActions>,
+            {
+              onActionStateChanged: (actionState) => {
+                if (actionState.actionStatus === ActionStatus.Finished) resolve();
+              },
+              onActionError: (error) => reject(error),
+            },
+          )
+          .catch(reject);
+      });
+    } catch (error) {
+      this.cancelled.delete(serial);
+      throw error;
+    }
+    granting.clearAllPathLocks();
   }
 }
