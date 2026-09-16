@@ -1,5 +1,7 @@
+import { treaty } from "@elysiajs/eden";
+import type { FleetApi } from "@fleet-manager/server";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
-import { fetchMap, fetchSites } from "./api.js";
+import { errorMessage, fetchMap, fetchSites } from "./api.js";
 import type { FetchFn } from "./api.js";
 
 export interface LivePose {
@@ -25,6 +27,18 @@ export type EventSourceFactory = (url: string) => {
   close(): void;
 };
 
+export interface DispatchWaypoint {
+  nodeId: string;
+  x: number;
+  y: number;
+}
+
+export interface DispatchInput {
+  serialNumber: string;
+  manufacturer?: string;
+  waypoints: DispatchWaypoint[];
+}
+
 /**
  * Data source behind Shell. Prod talks HTTP/SSE to the server;
  * the demo injects an in-memory twin over its in-page fleet.
@@ -35,6 +49,8 @@ export interface Backend {
   watchPoses(site: string, onPose: (pose: LivePose) => void): Unsubscribe;
   watchLocks(site: string, onLocks: (snap: LockSnapshot) => void): Unsubscribe;
   watchOrders(site: string, onOrders: (orders: OrderView[]) => void): Unsubscribe;
+  /** Send a tour. Resolves on accept; progress streams over watchOrders. */
+  dispatchOrder(site: string, input: DispatchInput): Promise<void>;
 }
 
 function watchStream<T>(
@@ -70,11 +86,24 @@ export function createHttpBackend(
   fetchFn: FetchFn = fetch,
   openEventSource?: EventSourceFactory,
 ): Backend {
+  const treatyApi = (fetch: FetchFn) => treaty<FleetApi>(baseUrl, { fetcher: fetch as typeof fetch });
   return {
     listSites: () => fetchSites(baseUrl, token, fetchFn),
     getMap: (site: string) => fetchMap(baseUrl, token, site, fetchFn),
     watchPoses: (site, onPose) => watchStream(baseUrl, token, site, "poses", onPose, openEventSource),
     watchLocks: (site, onLocks) => watchStream(baseUrl, token, site, "locks", onLocks, openEventSource),
     watchOrders: (site, onOrders) => watchStream(baseUrl, token, site, "orders", onOrders, openEventSource),
+    dispatchOrder: async (site, input) => {
+      const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.post({
+        serialNumber: input.serialNumber,
+        ...(input.manufacturer ? { manufacturer: input.manufacturer } : {}),
+        waypoints: input.waypoints,
+      });
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+    },
   };
 }

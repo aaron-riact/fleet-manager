@@ -37,4 +37,19 @@ describe("createMemoryBackend", () => {
     expect(locks).toHaveLength(1);
     expect(orders).toHaveLength(1);
   });
+
+  test("dispatch delegates to actions, or fails clearly", async () => {
+    const calls: unknown[] = [];
+    const backend = createMemoryBackend(site, {
+      dispatchOrder: async (name, input) => {
+        calls.push([name, input]);
+      },
+    });
+    const input = { serialNumber: "r1", waypoints: [{ nodeId: "a", x: 0, y: 0 }] };
+    await backend.dispatchOrder("demo", input);
+    expect(calls).toEqual([["demo", input]]);
+
+    const bare = createMemoryBackend(site);
+    await expect(bare.dispatchOrder("demo", input)).rejects.toThrow(/no dispatcher/);
+  });
 });

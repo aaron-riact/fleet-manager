@@ -2,6 +2,30 @@ import { describe, expect, test } from "bun:test";
 import { createHttpBackend } from "../src/backend.js";
 import type { FetchFn } from "../src/api.js";
 
+describe("createHttpBackend dispatch", () => {
+  const input = { serialNumber: "r1", waypoints: [{ nodeId: "a", x: 0, y: 0 }] };
+
+  test("posts orders to the site endpoint", async () => {
+    const seen: Array<[string, unknown]> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      seen.push([url, JSON.parse((init?.body as string) ?? "{}")]);
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as FetchFn;
+    await createHttpBackend("http://x", "t", fetchFn).dispatchOrder("coalescent", input);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe("http://x/api/sites/coalescent/orders");
+    expect(seen[0]![1]).toMatchObject({ serialNumber: "r1" });
+  });
+
+  test("surfaces busy robots", async () => {
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ error: "robot r1 is busy" }), { status: 409 })) as unknown as FetchFn;
+    await expect(
+      createHttpBackend("http://x", "t", fetchFn).dispatchOrder("coalescent", input),
+    ).rejects.toThrow(/busy/);
+  });
+});
+
 describe("createHttpBackend", () => {
   test("delegates to sites + map endpoints", async () => {
     const backend = createHttpBackend(
