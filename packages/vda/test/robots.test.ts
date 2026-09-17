@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { AgvController, MasterController, VirtualAgvAdapter } from "vda-5050-lib";
 import type { AgvId, ClientOptions } from "vda-5050-lib";
-import { watchConnections, watchRobots } from "../src/robots.js";
-import type { RobotConnection, RobotPose } from "../src/robots.js";
+import { watchConnections, watchRobots, watchStates } from "../src/robots.js";
+import type { RawState, RobotConnection, RobotPose } from "../src/robots.js";
 import { MemoryHub, attachMemoryTransport } from "../src/fakeMqtt.js";
 
 const options: ClientOptions = {
@@ -114,6 +114,30 @@ describe("watchRobots", () => {
       await master.stop();
     }
   }, 15_000);
+
+  test("forwards raw state bodies untouched", async () => {
+    const body = {
+      serialNumber: "raw-1",
+      manufacturer: "MakerA",
+      driving: true,
+      batteryState: { charging: true },
+    };
+    const stub = {
+      subscribeTopic: async (_t: unknown, _s: unknown, handler: (o: unknown) => void) => {
+        handler(body);
+        return "sub-9";
+      },
+      unsubscribe: async () => {},
+    };
+    const seen: RawState[] = [];
+    const stop = await watchStates(stub as unknown as MasterController, undefined, (s) =>
+      void seen.push(s),
+    );
+    stop();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ manufacturer: "MakerA", serialNumber: "raw-1" });
+    expect(seen[0]!.body).toBe(body);
+  });
 
   test("wildcard manufacturer sees every maker", async () => {
     const hub = new MemoryHub();

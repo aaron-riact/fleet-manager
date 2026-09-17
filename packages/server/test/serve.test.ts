@@ -578,6 +578,73 @@ describe("HTTP API", () => {
     }
   }, 90_000);
 
+  test("raw state endpoint serves the latest body per robot", async () => {
+    const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
+    const dir = mkdtempSync(join(tmpdir(), "fleet-raw-state-"));
+    const file = join(dir, "users.json");
+    writeFileSync(file, serializeUsersFile([user]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({ name: "coalescent", nodes: [{ id: "a", x: 0, y: 0 }], links: [] }),
+    );
+    const { server, port, contexts } = await serve({
+      port: 0,
+      usersFile: file,
+      sitesDir,
+      srp: testSrp,
+    });
+    const base = `http://localhost:${port}`;
+    const post = async (path: string, body: unknown, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const ctx = contexts.get("coalescent")!;
+    const robot = new AgvController(
+      { manufacturer: "RobotCompany", serialNumber: "raw-1" },
+      {
+        interfaceName: "coalescent",
+        vdaVersion: "2.0.0",
+        transport: { brokerUrl: "mqtt://memory" },
+        topicObjectValidation: { inbound: false, outbound: false },
+      },
+      { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+      { vehicleSpeed: 2, initialPosition: { mapId: "local", x: 0, y: 0, theta: 0, lastNodeId: "0" } },
+    );
+    attachMemoryTransport(robot, ctx.hub);
+    await robot.start();
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      const get = (serial: string, headers: Record<string, string>) =>
+        fetch(`${base}/api/sites/coalescent/robots/${serial}/state`, { headers });
+      const authz = { authorization: `Bearer ${token}` };
+
+      expect((await get("ghost", authz)).status).toBe(404);
+      expect((await get("raw-1", {})).status).toBe(401);
+
+      const deadline = Date.now() + 10_000;
+      while (!ctx.rawStates.has("raw-1") && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const res = await get("raw-1", authz);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({ manufacturer: "RobotCompany", serialNumber: "raw-1" });
+      expect(typeof body.receivedAt).toBe("number");
+      expect((body.state as Record<string, unknown>).serialNumber).toBe("raw-1");
+    } finally {
+      await robot.stop();
+      for (const [, c] of contexts) await c.master.stop();
+      server.stop(true);
+    }
+  }, 90_000);
+
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();
     try {

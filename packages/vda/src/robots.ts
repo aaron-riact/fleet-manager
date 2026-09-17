@@ -79,6 +79,40 @@ export function watchConnections(
   };
 }
 
+export interface RawState {
+  manufacturer: string;
+  serialNumber: string;
+  /** Untouched topic body, for operators that need the full VehicleState. */
+  body: unknown;
+}
+
+/**
+ * Raw state traffic, unprojected. The poses watcher above derives the
+ * driving view; this keeps the whole body for on-demand inspection
+ * (debug, acceptance against real AGVs). One entry per robot, latest
+ * wins — callers bound retention themselves.
+ */
+export async function watchStates(
+  master: MasterController,
+  manufacturer: string | undefined,
+  onState: (state: RawState) => void,
+): Promise<() => void> {
+  const access = master as unknown as TopicAccess;
+  const subject = manufacturer === undefined ? {} : { manufacturer };
+  const id = await access.subscribeTopic(Topic.State, subject, (object) => {
+    if (typeof object.serialNumber !== "string") return;
+    onState({
+      manufacturer: manufacturer ?? object.manufacturer ?? "unknown",
+      serialNumber: object.serialNumber,
+      body: object,
+    });
+  });
+  void id;
+  return () => {
+    (master as unknown as { unsubscribe(s: string): Promise<void> }).unsubscribe(id).catch(() => {});
+  };
+}
+
 /**
  * Live robot poses from state traffic. With a manufacturer, only that
  * maker's robots; without, all of them (the lib wildcards missing

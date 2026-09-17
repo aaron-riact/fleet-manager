@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { bootSiteFleet, watchConnections, watchRobots } from "@fleet-manager/vda";
+import { bootSiteFleet, watchConnections, watchRobots, watchStates } from "@fleet-manager/vda";
 import type { ActiveOrder, OrderHistory, RobotConnection, RobotPose, SiteFleet } from "@fleet-manager/vda";
 import { freeSpot, occupiedSpots } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
@@ -170,6 +170,14 @@ export function freshPoses(
   return [...poses].filter((p) => isFresh(p, now, ttlMs));
 }
 
+/** Latest untouched state body per robot (on-demand inspection). */
+export interface TrackedState {
+  manufacturer: string;
+  serialNumber: string;
+  receivedAt: number;
+  body: unknown;
+}
+
 /** Live per-site fleet: locks, dispatcher, and stream fan-out. */
 export interface SiteContext extends SiteFleet {
   lockSubs: Set<(snapshot: LockSnapshot) => void>;
@@ -181,6 +189,8 @@ export interface SiteContext extends SiteFleet {
   poses: Map<string, TrackedPose>;
   /** Latest master-tracked connection state per robot. */
   conns: Map<string, RobotConnection>;
+  /** Latest raw state body per robot (one entry each — bounded by design). */
+  rawStates: Map<string, TrackedState>;
 }
 
 export async function buildSiteContexts(
@@ -211,6 +221,7 @@ export async function buildSiteContexts(
     const connSubs = new Set<(conns: RobotConnection[]) => void>();
     const poses = new Map<string, TrackedPose>();
     const conns = new Map<string, RobotConnection>();
+    const rawStates = new Map<string, TrackedState>();
     const fleet = await bootSiteFleet(
       site,
       interfaceName,
@@ -249,6 +260,14 @@ export async function buildSiteContexts(
       const all = [...conns.values()];
       for (const send of [...connSubs]) send(all);
     });
+    const stopStates = await watchStates(fleet.master, undefined, (state) => {
+      const receivedAt = Date.now();
+      rawStates.set(state.serialNumber, { ...state, receivedAt });
+      // Same bound as poses: one body per robot, stale ones dropped.
+      for (const [serial, tracked] of rawStates) {
+        if (receivedAt - tracked.receivedAt >= poseTtlMs) rawStates.delete(serial);
+      }
+    });
     log(`site ${name}: interface ${interfaceName} via ${via}`);
     contexts.set(name, {
       ...fleet,
@@ -259,8 +278,10 @@ export async function buildSiteContexts(
       connSubs,
       poses,
       conns,
+      rawStates,
       stop: async () => {
         stopConns();
+        stopStates();
         stopPoses();
         await fleet.stop();
       },
@@ -498,6 +519,26 @@ export function buildApp(
         parked.push({ serialNumber, spot: spot.id });
       }
       return { ok: true, parked, failed };
+    })
+    .get("/api/sites/:name/robots/:serial/state", async ({ headers, params }) => {
+      // On-demand raw state: the full VehicleState body the poses stream
+      // projects from. Debug and acceptance use; dashboards use poses.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const serial = decodeURIComponent(params.serial);
+      const tracked = ctx.rawStates.get(serial);
+      if (!tracked || Date.now() - tracked.receivedAt >= poseTtlMs) {
+        throw Object.assign(new Error("no recent state for robot"), { status: 404 });
+      }
+      return {
+        manufacturer: tracked.manufacturer,
+        serialNumber: tracked.serialNumber,
+        receivedAt: tracked.receivedAt,
+        state: tracked.body,
+      };
     })
     .post("/api/sites/:name/orders", async ({ headers, params, body }) => {
       // Authenticate first: a 404 before the token check would let anyone
