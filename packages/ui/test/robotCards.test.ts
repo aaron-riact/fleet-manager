@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCards, filterCards, summarizeCards } from "../src/RobotCards.js";
+import { buildCards, filterCards, pruneStalePoses, summarizeCards } from "../src/RobotCards.js";
 
 const pose = (serialNumber: string, x = 1, y = 2, driving = false) => ({
   manufacturer: "m",
@@ -56,6 +56,15 @@ describe("fleet overview", () => {
     expect(cards.find((c) => c.serialNumber === "c")?.status).toBe("charging");
     expect(cards.find((c) => c.serialNumber === "u")?.status).toBe("offline");
     expect(summarizeCards(cards)).toMatchObject({ charging: 1, offline: 1 });
+  });
+
+  test("pruneStalePoses drops silent and never-seen robots", () => {
+    const poses = { a: pose("a"), b: pose("b"), ghost: pose("ghost") };
+    const seenAt = { a: 1000, b: 1000 };
+    const fresh = pruneStalePoses(poses, seenAt, 1000 + 29_999, 30_000);
+    expect(Object.keys(fresh).sort()).toEqual(["a", "b"]);
+    const aged = pruneStalePoses(poses, seenAt, 1000 + 30_000, 30_000);
+    expect(aged).toEqual({});
   });
 
   test("filterCards selects one status, all passes through", () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { login } from "./authClient";
 import { clearSession, loadSession, saveSession } from "./session";
 import { createHttpBackend } from "./backend";
@@ -6,7 +6,7 @@ import type { Backend, HistoryView, LivePose, OrderView } from "./backend";
 import type { LockSnapshot } from "@fleet-manager/core";
 import { FleetMap } from "./FleetMap";
 import { OrderComposer } from "./OrderComposer";
-import { RobotCards, buildCards, filterCards, summarizeCards } from "./RobotCards";
+import { POSE_TTL_MS, RobotCards, buildCards, filterCards, pruneStalePoses, summarizeCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { statusColor, theme } from "./theme";
@@ -124,6 +124,22 @@ export function Shell({
   const [orders, setOrders] = useState<OrderView[]>([]);
   const [history, setHistory] = useState<HistoryView[]>([]);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
+  const seenAt = useRef<Record<string, number>>({});
+
+  // Sweep silent robots off the cards. The poses stream only pushes on
+  // arrival, so without this a robot that stops reporting cards as placed
+  // forever — including through a total-silence outage the server cannot
+  // prune its way out of either.
+  useEffect(() => {
+    const sweep = setInterval(() => {
+      const at = seenAt.current;
+      setPoses((prev) => {
+        const next = pruneStalePoses(prev, at, Date.now(), POSE_TTL_MS);
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    }, 5_000);
+    return () => clearInterval(sweep);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +154,9 @@ export function Shell({
         setSite(map);
         cleanups.push(
           backend.watchPoses(name, (pose) => {
-            if (!cancelled) setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
+            if (cancelled) return;
+            seenAt.current[pose.serialNumber] = Date.now();
+            setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
           }),
           backend.watchLocks(name, (snap) => {
             if (!cancelled) setLocks(snap);

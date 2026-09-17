@@ -2,7 +2,7 @@
 export { FleetMap } from "./FleetMap.js";
 export type { RobotDot } from "./FleetMap.js";
 export { default as App, Shell } from "./App.js";
-export { RobotCards, buildCards, filterCards, summarizeCards } from "./RobotCards.js";
+export { POSE_TTL_MS, RobotCards, buildCards, filterCards, pruneStalePoses, summarizeCards } from "./RobotCards.js";
 export type { FleetFilter, RobotCardModel } from "./RobotCards.js";
 export { TaskHistory, outcomeColor, selectHistory } from "./TaskHistory.js";
 export type { HistoryFilter } from "./TaskHistory.js";

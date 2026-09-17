@@ -54,6 +54,26 @@ export function buildCards(
 
 export type FleetFilter = RobotStatus | "all";
 
+/** Poses older than this no longer describe where a robot is (mirrors the server TTL). */
+export const POSE_TTL_MS = 30_000;
+
+/**
+ * Drop robots silent longer than ttlMs. A stale fix is not a position —
+ * without this a dead robot cards as idle forever. Pure, tested.
+ */
+export function pruneStalePoses(
+  poses: Record<string, LivePose>,
+  seenAt: Record<string, number>,
+  now: number,
+  ttlMs: number = POSE_TTL_MS,
+): Record<string, LivePose> {
+  const fresh: Record<string, LivePose> = {};
+  for (const [serial, pose] of Object.entries(poses)) {
+    if (now - (seenAt[serial] ?? 0) < ttlMs) fresh[serial] = pose;
+  }
+  return fresh;
+}
+
 /** Per-status headcounts for the overview strip. Pure, tested. */
 export function summarizeCards(cards: RobotCardModel[]): Record<RobotStatus, number> {
   const counts: Record<RobotStatus, number> = { driving: 0, waiting: 0, charging: 0, idle: 0, offline: 0 };
