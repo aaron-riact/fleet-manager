@@ -9,6 +9,7 @@ import { OrderComposer } from "./OrderComposer";
 import { POSE_TTL_MS, RobotCards, buildCards, filterCards, pruneStalePoses, summarizeCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
+import { TaskBoard } from "./TaskBoard";
 import { statusColor, theme } from "./theme";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
@@ -323,6 +324,7 @@ export function Shell({
                 <RobotCards cards={visibleCards} backend={backend} siteName={site?.name} />
               </section>
               <TaskHistory history={history} />
+              <TaskBoard siteName={site.name} backend={backend} nodes={site.nodes} />
             </div>
           </div>
         )}

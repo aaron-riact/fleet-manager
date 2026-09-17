@@ -6,6 +6,7 @@ import type {
   LivePose,
   OrderView,
 } from "@fleet-manager/ui";
+import type { TaskView } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 
 export interface MemoryBackend extends Backend {
@@ -20,6 +21,9 @@ export interface MemoryBackendActions {
   dispatchOrder?(site: string, input: DispatchInput): Promise<void>;
   parkRobot?(site: string, input: { serialNumber: string; spotId?: string }): Promise<{ spot: string }>;
   cancelOrder?(site: string, input: { serialNumber: string }): Promise<void>;
+  submitTask?(site: string, input: { pickup: string; dropoff: string }): Promise<{ taskId: string }>;
+  listTasks?(site: string): Promise<TaskView[]>;
+  withdrawTask?(site: string, taskId: string): Promise<void>;
 }
 
 /**
@@ -64,6 +68,18 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     cancelOrder: async (site, input) => {
       if (!actions.cancelOrder) throw new Error(`no dispatcher for site "${site}"`);
       await actions.cancelOrder(site, input);
+    },
+    submitTask: async (site, input) => {
+      if (!actions.submitTask) throw new Error(`no dispatcher for site "${site}"`);
+      return actions.submitTask(site, input);
+    },
+    listTasks: async (site) => {
+      if (!actions.listTasks) throw new Error(`no dispatcher for site "${site}"`);
+      return actions.listTasks(site);
+    },
+    withdrawTask: async (site, taskId) => {
+      if (!actions.withdrawTask) throw new Error(`no dispatcher for site "${site}"`);
+      await actions.withdrawTask(site, taskId);
     },
     emitPose: emit(poseListeners),
     emitLocks: emit(lockListeners),

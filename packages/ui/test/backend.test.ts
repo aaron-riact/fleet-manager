@@ -50,6 +50,51 @@ describe("createHttpBackend dispatch", () => {
   });
 });
 
+describe("createHttpBackend tasks", () => {
+  test("submits, lists, and withdraws through the tasks endpoints", async () => {
+    const seen: Array<[string, string]> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      seen.push([method, url]);
+      if (url.endsWith("/tasks") && method === "GET") {
+        return new Response(
+          JSON.stringify({
+            tasks: [{ id: "task-1", pickup: "a", dropoff: "b", status: "queued", createdAt: 1 }],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/tasks")) {
+        expect(JSON.parse((init?.body as string) ?? "{}")).toEqual({ pickup: "a", dropoff: "b" });
+        return new Response(JSON.stringify({ ok: true, taskId: "task-1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as FetchFn;
+    const backend = createHttpBackend("http://x", "t", fetchFn);
+    await expect(backend.submitTask("coalescent", { pickup: "a", dropoff: "b" })).resolves.toEqual({
+      taskId: "task-1",
+    });
+    await expect(backend.listTasks("coalescent")).resolves.toEqual([
+      { id: "task-1", pickup: "a", dropoff: "b", status: "queued", createdAt: 1 },
+    ]);
+    await expect(backend.withdrawTask("coalescent", "task-1")).resolves.toBeUndefined();
+    expect(seen).toEqual([
+      ["POST", "http://x/api/sites/coalescent/tasks"],
+      ["GET", "http://x/api/sites/coalescent/tasks"],
+      ["DELETE", "http://x/api/sites/coalescent/tasks/task-1"],
+    ]);
+  });
+
+  test("task errors surface", async () => {
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ error: "no route" }), { status: 409 })) as unknown as FetchFn;
+    const backend = createHttpBackend("http://x", "t", fetchFn);
+    await expect(backend.submitTask("coalescent", { pickup: "a", dropoff: "b" })).rejects.toThrow(
+      /no route/,
+    );
+  });
+});
+
 describe("createHttpBackend", () => {
   test("delegates to sites + map endpoints", async () => {
     const backend = createHttpBackend(

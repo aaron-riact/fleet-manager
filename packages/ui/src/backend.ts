@@ -1,6 +1,6 @@
 import { treaty } from "@elysiajs/eden";
 import type { FleetApi } from "@fleet-manager/server";
-import type { LockSnapshot, Site } from "@fleet-manager/core";
+import type { LockSnapshot, Site, TaskView } from "@fleet-manager/core";
 import { errorMessage, fetchMap, fetchSites } from "./api.js";
 import type { FetchFn } from "./api.js";
 
@@ -84,6 +84,12 @@ export interface Backend {
   parkRobot(site: string, input: { serialNumber: string; spotId?: string }): Promise<{ spot: string }>;
   /** Cancel the active order. Rejects when the robot has none. */
   cancelOrder(site: string, input: { serialNumber: string }): Promise<void>;
+  /** Queue a pickup→dropoff job for the assign pump. */
+  submitTask(site: string, input: { pickup: string; dropoff: string }): Promise<{ taskId: string }>;
+  /** Task queue snapshot (poll; transitions ride the orders stream). */
+  listTasks(site: string): Promise<TaskView[]>;
+  /** Withdraw a queued task. Rejects once it is assigned. */
+  withdrawTask(site: string, taskId: string): Promise<void>;
 }
 
 function watchStream<T>(
@@ -151,6 +157,32 @@ export function createHttpBackend(
     },
     cancelOrder: async (site, input) => {
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.cancel.post(input);
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+    },
+    submitTask: async (site, input) => {
+      const res = await treatyApi(fetchFn).api.sites({ name: site }).tasks.post(input);
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+      return { taskId: res.data.taskId };
+    },
+    listTasks: async (site) => {
+      const res = await treatyApi(fetchFn).api.sites({ name: site }).tasks.get();
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+      return res.data.tasks as TaskView[];
+    },
+    withdrawTask: async (site, taskId) => {
+      const res = await treatyApi(fetchFn).api.sites({ name: site }).tasks({ taskId }).delete();
       if (res.data == null || "error" in res.data) {
         throw new Error(
           res.data != null ? res.data.error : errorMessage(res.error, res.status),

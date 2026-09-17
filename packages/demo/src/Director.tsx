@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchConnections, watchRobots } from "@fleet-manager/vda";
-import { freeSpot } from "@fleet-manager/core";
+import { freeSpot, nextTaskId, pumpSiteTasks, shortestPath } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
@@ -13,7 +13,8 @@ import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
 import siteData from "../../../data/seed/sites/coalescent.json";
 import { buildLocks } from "@fleet-manager/core";
-import type { LockSnapshot, Site } from "@fleet-manager/core";
+import type { LockSnapshot, Site, TaskView } from "@fleet-manager/core";
+import { POSE_TTL_MS } from "@fleet-manager/ui";
 
 declare const __BUILD_ID__: string;
 
@@ -32,7 +33,25 @@ export default function Director() {
   const svcRef = useRef<Fleet | null>(null);
   const locksModel = useMemo(() => buildLocks(site as Site), []);
   const posesRef = useRef<Record<string, RobotPose>>({});
+  const seenRef = useRef<Record<string, number>>({});
+  const tasksRef = useRef(new Map<string, TaskView>());
   const parkedRef = useRef<Record<string, string>>({});
+  function pumpDemoTasks() {
+    const svc = svcRef.current;
+    if (!svc) return;
+    const poses = new Map(
+      Object.entries(posesRef.current).map(([serial, p]) => [
+        serial,
+        {
+          manufacturer: p.manufacturer,
+          x: p.x,
+          y: p.y,
+          seenAt: seenRef.current[serial] ?? 0,
+        },
+      ]),
+    );
+    pumpSiteTasks({ site: site as Site, fleet: svc, poses, tasks: tasksRef.current, poseTtlMs: POSE_TTL_MS });
+  }
   const [backend] = useState<MemoryBackend>(() =>
     createMemoryBackend(site as Site, {
       dispatchOrder: async (_site, input) => {
@@ -79,6 +98,35 @@ export default function Director() {
         if (!robot) throw new Error(`unknown robot "${input.serialNumber}"`);
         await svc.cancel(robot.id);
       },
+      submitTask: async (_site, input) => {
+        const svc = svcRef.current;
+        if (!svc) throw new Error("fleet not booted yet");
+        const demoSite = site as Site;
+        const ids = new Set(demoSite.nodes.map((n) => n.id));
+        if (!ids.has(input.pickup) || !ids.has(input.dropoff)) {
+          throw new Error("pickup and dropoff must be known nodes");
+        }
+        if (!shortestPath(demoSite, input.pickup, input.dropoff)) {
+          throw new Error(`no route from "${input.pickup}" to "${input.dropoff}"`);
+        }
+        const id = nextTaskId();
+        tasksRef.current.set(id, {
+          id,
+          pickup: input.pickup,
+          dropoff: input.dropoff,
+          status: "queued",
+          createdAt: Date.now(),
+        });
+        pumpDemoTasks();
+        return { taskId: id };
+      },
+      listTasks: async () => [...tasksRef.current.values()],
+      withdrawTask: async (_site, taskId) => {
+        const task = tasksRef.current.get(taskId);
+        if (!task) throw new Error("unknown task");
+        if (task.status !== "queued") throw new Error("only queued tasks can be withdrawn");
+        tasksRef.current.delete(taskId);
+      },
     }),
   );
   const [serials, setSerials] = useState<string[]>([]);
@@ -118,7 +166,7 @@ export default function Director() {
         ...(spots[1] ? { [spots[1].id]: "demo-2" } : {}),
       });
       fleetRef.current = fleet;
-      svcRef.current = new Fleet(fleet.master, locksModel, {
+      const svc = new Fleet(fleet.master, locksModel, {
         onLocks: (snap) => {
           if (cancelled) return;
           backend.emitLocks(snap);
@@ -135,16 +183,19 @@ export default function Director() {
           if (cancelled) return;
           backend.emitOrders(list);
           setOrders(list);
+          pumpDemoTasks();
         },
         onHistory: (history) => {
           if (cancelled) return;
           backend.emitHistory(history);
         },
       });
+      svcRef.current = svc;
       setSerials(fleet.robots.map((r) => r.id.serialNumber));
       await watchRobots(fleet.master, MANUFACTURER, (pose) => {
         if (cancelled) return;
         posesRef.current = { ...posesRef.current, [pose.serialNumber]: pose };
+        seenRef.current[pose.serialNumber] = Date.now();
         backend.emitPose(pose);
         setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
       });

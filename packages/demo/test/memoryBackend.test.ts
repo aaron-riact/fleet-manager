@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Site } from "@fleet-manager/core";
+import type { Site, TaskView } from "@fleet-manager/core";
 import { createMemoryBackend } from "../src/memoryBackend.js";
 
 const site: Site = { name: "demo", nodes: [{ id: "a", x: 0, y: 0 }], links: [] };
@@ -77,6 +77,37 @@ describe("createMemoryBackend", () => {
 
     const bare = createMemoryBackend(site);
     await expect(bare.dispatchOrder("demo", input)).rejects.toThrow(/no dispatcher/);
+  });
+
+  test("tasks delegate to actions, or fail clearly", async () => {
+    const calls: string[] = [];
+    const queued: TaskView[] = [
+      { id: "task-1", pickup: "a", dropoff: "b", status: "queued", createdAt: 1 },
+    ];
+    const backend = createMemoryBackend(site, {
+      submitTask: async (name, arg) => {
+        calls.push(`submit:${name}:${arg.pickup}->${arg.dropoff}`);
+        return { taskId: "task-1" };
+      },
+      listTasks: async (name) => {
+        calls.push(`list:${name}`);
+        return queued;
+      },
+      withdrawTask: async (name, taskId) => {
+        calls.push(`withdraw:${name}:${taskId}`);
+      },
+    });
+    await expect(backend.submitTask("demo", { pickup: "a", dropoff: "b" })).resolves.toEqual({
+      taskId: "task-1",
+    });
+    await expect(backend.listTasks("demo")).resolves.toEqual(queued);
+    await expect(backend.withdrawTask("demo", "task-1")).resolves.toBeUndefined();
+    expect(calls).toEqual(["submit:demo:a->b", "list:demo", "withdraw:demo:task-1"]);
+
+    const bare = createMemoryBackend(site);
+    await expect(bare.submitTask("demo", { pickup: "a", dropoff: "b" })).rejects.toThrow(/no dispatcher/);
+    await expect(bare.listTasks("demo")).rejects.toThrow(/no dispatcher/);
+    await expect(bare.withdrawTask("demo", "task-1")).rejects.toThrow(/no dispatcher/);
   });
 
   test("park and cancel delegate to actions, or fail clearly", async () => {
