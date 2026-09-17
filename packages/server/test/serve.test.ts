@@ -474,6 +474,110 @@ describe("HTTP API", () => {
     }
   }, 90_000);
 
+  test("park-many clears several robots, honors zones, reports failures", async () => {
+    const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
+    const dir = mkdtempSync(join(tmpdir(), "fleet-park-many-"));
+    const file = join(dir, "users.json");
+    writeFileSync(file, serializeUsersFile([user]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({
+        name: "coalescent",
+        nodes: [
+          { id: "a", x: 0, y: 0 },
+          { id: "b", x: 10, y: 0 },
+        ],
+        links: [{ source: "a", destination: "b", bidirectional: true }],
+        parking: [
+          { id: "p1", x: 1, y: 1, entry: "a", zone: "w" },
+          { id: "p2", x: 2, y: 1, entry: "a", zone: "w" },
+          { id: "p3", x: 9, y: 1, entry: "b", zone: "e" },
+        ],
+      }),
+    );
+    const { server, port, contexts } = await serve({
+      port: 0,
+      usersFile: file,
+      sitesDir,
+      srp: testSrp,
+    });
+    const base = `http://localhost:${port}`;
+    const post = async (path: string, body: unknown, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const ctx = contexts.get("coalescent")!;
+    const startRobot = async (serial: string, x: number) => {
+      const robot = new AgvController(
+        { manufacturer: "RobotCompany", serialNumber: serial },
+        {
+          interfaceName: "coalescent",
+          vdaVersion: "2.0.0",
+          transport: { brokerUrl: "mqtt://memory" },
+          topicObjectValidation: { inbound: false, outbound: false },
+        },
+        { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+        { vehicleSpeed: 2, initialPosition: { mapId: "local", x, y: 0, theta: 0, lastNodeId: "0" } },
+      );
+      attachMemoryTransport(robot, ctx.hub);
+      await robot.start();
+      return robot;
+    };
+    const r1 = await startRobot("bulk-1", 0);
+    const r2 = await startRobot("bulk-2", 10);
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      const parkMany = (body: unknown) =>
+        post("/api/sites/coalescent/park-many", body, token);
+
+      // bad bodies fail before any driving
+      expect((await parkMany({})).status).toBe(400);
+      expect((await parkMany({ serialNumbers: [] })).status).toBe(400);
+      expect((await parkMany({ serialNumbers: ["bulk-1"], zone: "" })).status).toBe(400);
+
+      const deadline = Date.now() + 10_000;
+      while ((!ctx.poses.has("bulk-1") || !ctx.poses.has("bulk-2")) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      // both fit the west zone; nearest-first assignment, no double booking
+      const zoned = await (await parkMany({ serialNumbers: ["bulk-1", "bulk-2"], zone: "w" })).json();
+      expect(zoned).toEqual({
+        ok: true,
+        parked: [
+          { serialNumber: "bulk-1", spot: "p1" },
+          { serialNumber: "bulk-2", spot: "p2" },
+        ],
+        failed: [],
+      });
+
+      // one east spot: first come, the ghost never reported, bulk-2 loses
+      const east = await (
+        await parkMany({ serialNumbers: ["bulk-1", "ghost", "bulk-2"], zone: "e" })
+      ).json();
+      expect(east).toEqual({
+        ok: true,
+        parked: [{ serialNumber: "bulk-1", spot: "p3" }],
+        failed: [
+          { serialNumber: "ghost", error: "no recent pose for robot" },
+          { serialNumber: "bulk-2", error: "no free parking spot" },
+        ],
+      });
+    } finally {
+      await r1.stop();
+      await r2.stop();
+      for (const [, c] of contexts) await c.master.stop();
+      server.stop(true);
+    }
+  }, 90_000);
+
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();
     try {

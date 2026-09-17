@@ -421,6 +421,67 @@ export function buildApp(
         .catch((error: unknown) => console.warn("park failed", error));
       return { ok: true, spot: spot.id };
     })
+    .post("/api/sites/:name/park-many", async ({ headers, params, body }) => {
+      // Bulk park: one call clears N robots into free spots (optionally one
+      // zone). Accepted, not awaited — same fire-and-forget as single park.
+      // Per-robot failures ride along in `failed`, never abort the batch.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const input = (body ?? {}) as { serialNumbers?: unknown; zone?: unknown };
+      if (
+        !Array.isArray(input.serialNumbers) ||
+        input.serialNumbers.length === 0 ||
+        !input.serialNumbers.every((s) => typeof s === "string" && s)
+      ) {
+        throw Object.assign(new Error("non-empty serialNumbers required"), { status: 400 });
+      }
+      if (input.zone !== undefined && (typeof input.zone !== "string" || !input.zone)) {
+        throw Object.assign(new Error("zone must be a non-empty string"), { status: 400 });
+      }
+      const now = Date.now();
+      const fresh = (serial: string) => {
+        const pose = ctx.poses.get(serial);
+        return pose &&
+          isFresh(pose, now, poseTtlMs) &&
+          Number.isFinite(pose.x) &&
+          Number.isFinite(pose.y)
+          ? pose
+          : undefined;
+      };
+      const spots = (ctx.site.parking ?? []).filter(
+        (s) => input.zone === undefined || s.zone === input.zone,
+      );
+      // Assigned spots hold for the rest of the batch, so two robots never
+      // get the same one. Sequential on purpose: deterministic assignment.
+      const taken = new Set<string>();
+      const parked: Array<{ serialNumber: string; spot: string }> = [];
+      const failed: Array<{ serialNumber: string; error: string }> = [];
+      for (const serialNumber of input.serialNumbers as string[]) {
+        const pose = fresh(serialNumber);
+        if (!pose) {
+          failed.push({ serialNumber, error: "no recent pose for robot" });
+          continue;
+        }
+        const spot = freeSpot(
+          spots.filter((s) => !taken.has(s.id)),
+          occupiedSpots(spots, freshPoses(ctx.poses.values(), now, poseTtlMs)),
+          pose,
+        );
+        if (!spot) {
+          failed.push({ serialNumber, error: "no free parking spot" });
+          continue;
+        }
+        taken.add(spot.id);
+        ctx.fleet
+          .park({ manufacturer: pose.manufacturer, serialNumber }, spot, { from: pose })
+          .catch((error: unknown) => console.warn("park failed", error));
+        parked.push({ serialNumber, spot: spot.id });
+      }
+      return { ok: true, parked, failed };
+    })
     .post("/api/sites/:name/orders", async ({ headers, params, body }) => {
       // Authenticate first: a 404 before the token check would let anyone
       // enumerate site names.

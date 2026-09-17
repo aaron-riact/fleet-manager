@@ -31,6 +31,13 @@ describe("site schema", () => {
     ).toThrow();
   });
 
+  test("parking spots accept an optional zone", () => {
+    const parking = parseSite(
+      JSON.stringify({ ...loop, parking: [{ id: "p1", x: 5, y: 4, zone: "warehouse" }] }),
+    ).parking;
+    expect(parking).toEqual([{ id: "p1", x: 5, y: 4, zone: "warehouse" }]);
+  });
+
   test("rejects dangling links, empty nodes, bad JSON", () => {
     expect(() =>
       parseSite(JSON.stringify({ ...loop, links: [{ source: "a", destination: "ghost" }] })),

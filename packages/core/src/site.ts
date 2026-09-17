@@ -33,6 +33,8 @@ export const ParkingSpotSchema = z.object({
   theta: z.number().finite().optional(),
   /** Graph node this spot feeds (approach tours start here). */
   entry: z.string().min(1).optional(),
+  /** Zone grouping for bulk parking (e.g. "warehouse"). */
+  zone: z.string().min(1).optional(),
 });
 
 export type ParkingSpot = z.infer<typeof ParkingSpotSchema>;
