@@ -8,6 +8,10 @@ const pose = (serialNumber: string, x = 1, y = 2, driving = false) => ({
   y,
   theta: 0,
   driving,
+  charging: false,
+  positionInitialized: true,
+  eStop: false,
+  fieldViolation: false,
 });
 
 describe("buildCards", () => {
@@ -36,8 +40,22 @@ describe("fleet overview", () => {
       [],
       undefined,
     );
-    expect(summarizeCards(cards)).toEqual({ driving: 1, waiting: 0, idle: 1, offline: 1 });
-    expect(summarizeCards([])).toEqual({ driving: 0, waiting: 0, idle: 0, offline: 0 });
+    expect(summarizeCards(cards)).toEqual({ driving: 1, waiting: 0, charging: 0, idle: 1, offline: 1 });
+    expect(summarizeCards([])).toEqual({ driving: 0, waiting: 0, charging: 0, idle: 0, offline: 0 });
+  });
+
+  test("charging and unlocalized cards", () => {
+    const cards = buildCards(
+      {
+        c: { ...pose("c"), charging: true, batteryCharge: 78 },
+        u: { ...pose("u"), positionInitialized: false },
+      },
+      [],
+      undefined,
+    );
+    expect(cards.find((c) => c.serialNumber === "c")?.status).toBe("charging");
+    expect(cards.find((c) => c.serialNumber === "u")?.status).toBe("offline");
+    expect(summarizeCards(cards)).toMatchObject({ charging: 1, offline: 1 });
   });
 
   test("filterCards selects one status, all passes through", () => {

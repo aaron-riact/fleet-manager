@@ -22,13 +22,15 @@ export const theme = {
   mono: "ui-monospace, SFMono-Regular, Menlo, monospace",
 } as const;
 
-export type RobotStatus = "driving" | "waiting" | "idle" | "offline";
+export type RobotStatus = "driving" | "waiting" | "charging" | "idle" | "offline";
 
 export interface RobotSnapshot {
   serialNumber: string;
   x: number;
   y: number;
   driving: boolean;
+  charging: boolean;
+  positionInitialized: boolean;
   /** First unreleased node id in its active order, if any. */
   waitingOn?: string;
   /** Node ids it currently owns (locks snapshot). */
@@ -38,6 +40,9 @@ export interface RobotSnapshot {
 /** One-word robot state for dots, cards, and the fleet bar. */
 export function robotStatus(robot: RobotSnapshot): RobotStatus {
   if (!Number.isFinite(robot.x) || !Number.isFinite(robot.y)) return "offline";
+  // An unlocalized fix is not a position: never show it as placed.
+  if (!robot.positionInitialized) return "offline";
+  if (robot.charging) return "charging";
   if (robot.driving) return "driving";
   if (robot.waitingOn !== undefined) return "waiting";
   return "idle";
@@ -49,6 +54,8 @@ export function statusColor(status: RobotStatus): string {
       return theme.ok;
     case "waiting":
       return theme.warn;
+    case "charging":
+      return theme.accent;
     case "idle":
       return theme.textDim;
     case "offline":

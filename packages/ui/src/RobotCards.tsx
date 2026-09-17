@@ -40,6 +40,8 @@ export function buildCards(
           x: pose.x,
           y: pose.y,
           driving: pose.driving,
+          charging: pose.charging,
+          positionInitialized: pose.positionInitialized,
           waitingOn,
         }),
         pose,
@@ -54,7 +56,7 @@ export type FleetFilter = RobotStatus | "all";
 
 /** Per-status headcounts for the overview strip. Pure, tested. */
 export function summarizeCards(cards: RobotCardModel[]): Record<RobotStatus, number> {
-  const counts: Record<RobotStatus, number> = { driving: 0, waiting: 0, idle: 0, offline: 0 };
+  const counts: Record<RobotStatus, number> = { driving: 0, waiting: 0, charging: 0, idle: 0, offline: 0 };
   for (const card of cards) counts[card.status] += 1;
   return counts;
 }
@@ -151,9 +153,14 @@ export function RobotCards({
               </span>
             </div>
             <div style={{ color: theme.textFaint, fontSize: "0.75rem", marginTop: "0.3rem" }}>
-              {card.pose && Number.isFinite(card.pose.x)
-                ? `${card.pose.x.toFixed(1)}, ${card.pose.y.toFixed(1)}`
-                : "no fix"}
+              {!card.pose || !Number.isFinite(card.pose.x)
+                ? "no fix"
+                : !card.pose.positionInitialized
+                  ? "unlocalized"
+                  : `${card.pose.x.toFixed(1)}, ${card.pose.y.toFixed(1)}`}
+              {card.pose?.charging ? " · charging" : ""}
+              {card.pose?.batteryCharge !== undefined ? ` · ${Math.round(card.pose.batteryCharge)}%` : ""}
+              {card.pose?.eStop ? " · e-stop" : ""}
               {card.holding.length > 0 ? ` · holds ${card.holding.join(", ")}` : ""}
               {card.order ? ` · ${card.order.orderId} ${done}/${total}` : ""}
             </div>

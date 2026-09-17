@@ -22,7 +22,19 @@ describe("createMemoryBackend", () => {
     const un3 = backend.watchOrders("demo", (o) => void orders.push(o));
     const un4 = backend.watchHistory("demo", (h) => void history.push(h));
 
-    backend.emitPose({ manufacturer: "m", serialNumber: "r1", x: 1, y: 2, theta: 0, driving: false });
+    const pose = {
+      manufacturer: "m",
+      serialNumber: "r1",
+      x: 1,
+      y: 2,
+      theta: 0,
+      driving: false,
+      charging: false,
+      positionInitialized: true,
+      eStop: false,
+      fieldViolation: false,
+    };
+    backend.emitPose(pose);
     backend.emitLocks({ nodeLocks: [], edgeLocks: [] });
     backend.emitOrders([]);
     backend.emitHistory([]);
@@ -35,7 +47,7 @@ describe("createMemoryBackend", () => {
     un2();
     un3();
     un4();
-    backend.emitPose({ manufacturer: "m", serialNumber: "r1", x: 1, y: 2, theta: 0, driving: false });
+    backend.emitPose(pose);
     backend.emitLocks({ nodeLocks: [], edgeLocks: [] });
     backend.emitOrders([]);
     backend.emitHistory([]);

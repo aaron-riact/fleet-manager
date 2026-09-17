@@ -267,7 +267,7 @@ export function Shell({
                   Robots · {fleetFilter === "all" ? cards.length : `${visibleCards.length} of ${cards.length}`}
                 </h2>
                 <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
-                  {(["all", "driving", "waiting", "idle", "offline"] as const).map((f) => {
+                  {(["all", "driving", "waiting", "charging", "idle", "offline"] as const).map((f) => {
                     const active = fleetFilter === f;
                     const count = f === "all" ? cards.length : summary[f];
                     return (

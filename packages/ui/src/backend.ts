@@ -11,6 +11,13 @@ export interface LivePose {
   y: number;
   theta: number;
   driving: boolean;
+  charging: boolean;
+  batteryCharge?: number;
+  batteryVoltage?: number;
+  /** False until the AGV trusts its own position — never treat as placed. */
+  positionInitialized: boolean;
+  eStop: boolean;
+  fieldViolation: boolean;
 }
 
 export interface OrderView {
