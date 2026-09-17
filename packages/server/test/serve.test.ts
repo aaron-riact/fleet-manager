@@ -645,6 +645,128 @@ describe("HTTP API", () => {
     }
   }, 90_000);
 
+  test("tasks assign the nearest robot and complete with history links", async () => {
+    const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
+    const dir = mkdtempSync(join(tmpdir(), "fleet-tasks-"));
+    const file = join(dir, "users.json");
+    writeFileSync(file, serializeUsersFile([user]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({
+        name: "coalescent",
+        nodes: [
+          { id: "a", x: 0, y: 0 },
+          { id: "b", x: 12, y: 0 },
+        ],
+        links: [{ source: "a", destination: "b", bidirectional: true }],
+      }),
+    );
+    const { server, port, contexts } = await serve({
+      port: 0,
+      usersFile: file,
+      sitesDir,
+      srp: testSrp,
+    });
+    const base = `http://localhost:${port}`;
+    const post = async (path: string, body: unknown, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const ctx = contexts.get("coalescent")!;
+    const robot = new AgvController(
+      { manufacturer: "RobotCompany", serialNumber: "task-1" },
+      {
+        interfaceName: "coalescent",
+        vdaVersion: "2.0.0",
+        transport: { brokerUrl: "mqtt://memory" },
+        topicObjectValidation: { inbound: false, outbound: false },
+      },
+      { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+      { vehicleSpeed: 8, initialPosition: { mapId: "local", x: 0, y: 0, theta: 0, lastNodeId: "0" } },
+    );
+    attachMemoryTransport(robot, ctx.hub);
+    await robot.start();
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      const getTasks = async () =>
+        (await (
+          await fetch(`${base}/api/sites/coalescent/tasks`, {
+            headers: { authorization: `Bearer ${token}` },
+          })
+        ).json()) as { tasks: Array<{ id: string; status: string; assignee?: string; orderId?: string }> };
+
+      // validation first: unknown nodes 400, unroutable pair 409
+      expect((await post("/api/sites/coalescent/tasks", { pickup: "ghost", dropoff: "a" }, token)).status).toBe(400);
+      expect((await post("/api/sites/coalescent/tasks", {}, token)).status).toBe(400);
+
+      const deadline = Date.now() + 10_000;
+      while (!ctx.poses.has("task-1") && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const submitted = await (
+        await post("/api/sites/coalescent/tasks", { pickup: "b", dropoff: "a" }, token)
+      ).json();
+      expect(submitted.ok).toBe(true);
+
+      // queued → assigned → done, linked to the history order
+      const doneDeadline = Date.now() + 45_000;
+      let done;
+      for (;;) {
+        const { tasks } = await getTasks();
+        done = tasks.find((t) => t.id === submitted.taskId);
+        if (done?.status === "done") break;
+        if (done?.status === "failed" || Date.now() > doneDeadline) {
+          throw new Error(`task did not complete: ${JSON.stringify(done)}`);
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      expect(done.assignee).toBe("task-1");
+      expect(typeof done.orderId).toBe("string");
+      expect(ctx.fleet.orderHistory().map((h) => h.orderId)).toContain(done.orderId!);
+
+      // withdrawing a finished task is refused; withdrawing a queued one works
+      const delDone = await fetch(`${base}/api/sites/coalescent/tasks/${submitted.taskId}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(delDone.status).toBe(409);
+      // keep the robot busy with a long tour so the next task stays queued
+      await post(
+        "/api/sites/coalescent/orders",
+        {
+          serialNumber: "task-1",
+          waypoints: [
+            { nodeId: "a", x: 0, y: 0 },
+            { nodeId: "b", x: 12, y: 0 },
+            { nodeId: "a", x: 0, y: 0 },
+            { nodeId: "b", x: 12, y: 0 },
+          ],
+        },
+        token,
+      );
+      const queued = await (
+        await post("/api/sites/coalescent/tasks", { pickup: "a", dropoff: "b" }, token)
+      ).json();
+      const delQueued = await fetch(`${base}/api/sites/coalescent/tasks/${queued.taskId}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(delQueued.status).toBe(200);
+      expect((await getTasks()).tasks.map((t) => t.id)).not.toContain(queued.taskId);
+    } finally {
+      await robot.stop();
+      for (const [, c] of contexts) await c.master.stop();
+      server.stop(true);
+    }
+  }, 120_000);
+
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();
     try {
@@ -744,4 +866,67 @@ describe("HTTP API", () => {
       await stop();
     }
   });
+
+  test("a task queued with no robot assigns when one appears", async () => {
+    const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
+    const dir = mkdtempSync(join(tmpdir(), "fleet-late-"));
+    const file = join(dir, "users.json");
+    writeFileSync(file, serializeUsersFile([user]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({
+        name: "coalescent",
+        nodes: [
+          { id: "a", x: 0, y: 0 },
+          { id: "b", x: 12, y: 0 },
+        ],
+        links: [{ source: "a", destination: "b", bidirectional: true }],
+      }),
+    );
+    const { stop, port, contexts } = await serve({ port: 0, usersFile: file, sitesDir, srp: testSrp });
+    const base = `http://localhost:${port}`;
+    const post = async (path: string, body: unknown, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const ctx = contexts.get("coalescent")!;
+    let robot: AgvController | undefined;
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      // queue the work while the site has no robot at all
+      expect((await post("/api/sites/coalescent/tasks", { pickup: "a", dropoff: "b" }, token)).status).toBe(200);
+      expect([...ctx.tasks.values()][0]).toMatchObject({ status: "queued" });
+
+      // now one turns up — nothing else happens, no order ends
+      robot = new AgvController(
+        { manufacturer: "RobotCompany", serialNumber: "late-1" },
+        {
+          interfaceName: "coalescent",
+          vdaVersion: "2.0.0",
+          transport: { brokerUrl: "mqtt://memory" },
+          topicObjectValidation: { inbound: false, outbound: false },
+        },
+        { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+        { vehicleSpeed: 8, initialPosition: { mapId: "local", x: 0, y: 0, theta: 0, lastNodeId: "0" } },
+      );
+      attachMemoryTransport(robot, ctx.hub);
+      await robot.start();
+
+      const deadline = Date.now() + 15_000;
+      while ([...ctx.tasks.values()][0]?.status === "queued" && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect([...ctx.tasks.values()][0]).toMatchObject({ assignee: "late-1" });
+    } finally {
+      if (robot) await robot.stop();
+      await stop();
+    }
+  }, 30_000);
 });

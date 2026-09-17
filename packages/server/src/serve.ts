@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { bootSiteFleet, watchConnections, watchRobots, watchStates } from "@fleet-manager/vda";
 import type { ActiveOrder, OrderHistory, RobotConnection, RobotPose, SiteFleet } from "@fleet-manager/vda";
-import { freeSpot, occupiedSpots } from "@fleet-manager/core";
+import { freeSpot, occupiedSpots, shortestPath } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
@@ -178,6 +178,113 @@ export interface TrackedState {
   body: unknown;
 }
 
+/** A pickup→dropoff job: queued until a free robot takes it. */
+export interface TaskView {
+  id: string;
+  pickup: string;
+  dropoff: string;
+  status: "queued" | "assigned" | "done" | "failed";
+  assignee?: string;
+  /** Fleet order id once dispatched — the key into order history. */
+  orderId?: string;
+  reason?: string;
+  createdAt: number;
+}
+
+/** Terminal tasks retained per site (queued/assigned never dropped). */
+export const MAX_RETAINED_TASKS = 200;
+
+let taskCounter = 1;
+
+export interface TaskPump {
+  site: Site;
+  fleet: {
+    isBusy(serial: string): boolean;
+    dispatch(
+      agv: { manufacturer: string; serialNumber: string },
+      waypoints: Array<{ nodeId: string; x: number; y: number }>,
+      opts?: { from?: { x: number; y: number } },
+    ): Promise<string>;
+  };
+  poses: Map<string, TrackedPose>;
+  tasks: Map<string, TaskView>;
+  poseTtlMs: number;
+}
+
+/**
+ * Assign queued tasks to the nearest free robot with a fresh pose.
+ * Idempotent: safe to run on every order event and every submit.
+ * Terminal tasks (done/failed) accumulate only up to MAX_RETAINED_TASKS —
+ * the orders history stream is the durable record.
+ */
+const pumping = new WeakSet<Map<string, TaskView>>();
+
+export function pumpSiteTasks(pump: TaskPump): void {
+  // dispatch() emits onOrders synchronously, which calls this again while
+  // the loop below is still walking `tasks` — and the retention sweep
+  // deletes from that same map. Run the nested call after this one
+  // instead, so there is only ever one walker.
+  if (pumping.has(pump.tasks)) return;
+  pumping.add(pump.tasks);
+  try {
+    assignQueuedTasks(pump);
+  } finally {
+    pumping.delete(pump.tasks);
+  }
+}
+
+function assignQueuedTasks({ site, fleet, poses, tasks, poseTtlMs }: TaskPump): void {
+  const now = Date.now();
+  const byId = new Map(site.nodes.map((n) => [n.id, n]));
+  for (const task of [...tasks.values()]) {
+    if (task.status !== "queued") continue;
+    const pickup = byId.get(task.pickup);
+    const drop = byId.get(task.dropoff);
+    if (!pickup || !drop) {
+      task.status = "failed";
+      task.reason = `unknown pickup or dropoff node`;
+      continue;
+    }
+    let best: { serial: string; manufacturer: string; pose: TrackedPose; d: number } | undefined;
+    for (const [serial, pose] of poses) {
+      if (!isFresh(pose, now, poseTtlMs) || fleet.isBusy(serial)) continue;
+      const d = (pose.x - pickup.x) ** 2 + (pose.y - pickup.y) ** 2;
+      if (!best || d < best.d) best = { serial, manufacturer: pose.manufacturer, pose, d };
+    }
+    if (!best) continue;
+    const path = shortestPath(site, task.pickup, task.dropoff);
+    if (!path) {
+      task.status = "failed";
+      task.reason = `no route from "${task.pickup}" to "${task.dropoff}"`;
+      continue;
+    }
+    task.status = "assigned";
+    task.assignee = best.serial;
+    const from = { x: best.pose.x, y: best.pose.y };
+    // Path nodes come from the same graph just routed on — always known.
+    const waypoints = path.map((id) => {
+      const n = byId.get(id)!;
+      return { nodeId: id, x: n.x, y: n.y };
+    });
+    fleet
+      .dispatch({ manufacturer: best.manufacturer, serialNumber: best.serial }, waypoints, { from })
+      .then(
+        (orderId) => {
+          task.status = "done";
+          task.orderId = orderId;
+        },
+        (error: unknown) => {
+          task.status = "failed";
+          task.reason = error instanceof Error ? error.message : String(error);
+        },
+      );
+  }
+  const terminal = [...tasks.values()]
+    .filter((t) => t.status === "done" || t.status === "failed")
+    .sort((a, b) => b.createdAt - a.createdAt);
+  for (const stale of terminal.slice(MAX_RETAINED_TASKS)) tasks.delete(stale.id);
+}
+
 /** Live per-site fleet: locks, dispatcher, and stream fan-out. */
 export interface SiteContext extends SiteFleet {
   lockSubs: Set<(snapshot: LockSnapshot) => void>;
@@ -191,6 +298,8 @@ export interface SiteContext extends SiteFleet {
   conns: Map<string, RobotConnection>;
   /** Latest raw state body per robot (one entry each — bounded by design). */
   rawStates: Map<string, TrackedState>;
+  /** Pickup→dropoff jobs (queued until the pump assigns a free robot). */
+  tasks: Map<string, TaskView>;
 }
 
 export async function buildSiteContexts(
@@ -222,6 +331,7 @@ export async function buildSiteContexts(
     const poses = new Map<string, TrackedPose>();
     const conns = new Map<string, RobotConnection>();
     const rawStates = new Map<string, TrackedState>();
+    const tasks = new Map<string, TaskView>();
     const fleet = await bootSiteFleet(
       site,
       interfaceName,
@@ -231,6 +341,8 @@ export async function buildSiteContexts(
         },
         onOrders: (orders) => {
           for (const send of [...orderSubs]) send(orders);
+          // A lifecycle end frees a robot — the moment queued tasks move.
+          pumpSiteTasks({ site, fleet: fleet.fleet, poses, tasks, poseTtlMs });
         },
         onHistory: (history) => {
           for (const send of [...historySubs]) send(history);
@@ -245,6 +357,11 @@ export async function buildSiteContexts(
     // live on a master the caller thinks it has stopped.
     const stopPoses = await watchRobots(fleet.master, undefined, (pose) => {
       const seenAt = Date.now();
+      // Only a robot that was absent (new, or swept as stale) can change
+      // what the pump can do; pumping on every state frame would run it
+      // several times a second per robot for nothing.
+      const previous = poses.get(pose.serialNumber);
+      const wasKnown = previous !== undefined && isFresh(previous, seenAt, poseTtlMs);
       poses.set(pose.serialNumber, { ...pose, seenAt });
       // Drop robots that stopped reporting, so the map cannot grow for
       // the life of the process and stale entries cannot hold a spot.
@@ -252,6 +369,10 @@ export async function buildSiteContexts(
         if (!isFresh(tracked, seenAt, poseTtlMs)) poses.delete(serial);
       }
       for (const send of [...poseSubs]) send(pose);
+      // A robot coming back into view is the other way work becomes
+      // assignable. Without this a task queued while every robot was
+      // busy or silent waits for an unrelated order to end.
+      if (!wasKnown) pumpSiteTasks({ site, fleet: fleet.fleet, poses, tasks, poseTtlMs });
     });
     // One subscription per master: the lib chains track handlers
     // permanently, so this must not run per stream.
@@ -279,6 +400,7 @@ export async function buildSiteContexts(
       poses,
       conns,
       rawStates,
+      tasks,
       stop: async () => {
         stopConns();
         stopStates();
@@ -539,6 +661,67 @@ export function buildApp(
         receivedAt: tracked.receivedAt,
         state: tracked.body,
       };
+    })
+    .post("/api/sites/:name/tasks", async ({ headers, params, body }) => {
+      // Queue a pickup→dropoff job. The pump assigns the nearest free
+      // robot; progress rides the orders/history streams, completion
+      // lands here via GET /tasks.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const input = (body ?? {}) as { pickup?: unknown; dropoff?: unknown };
+      if (typeof input.pickup !== "string" || !input.pickup) {
+        throw Object.assign(new Error("pickup required"), { status: 400 });
+      }
+      if (typeof input.dropoff !== "string" || !input.dropoff) {
+        throw Object.assign(new Error("dropoff required"), { status: 400 });
+      }
+      const ids = new Set(ctx.site.nodes.map((n) => n.id));
+      if (!ids.has(input.pickup) || !ids.has(input.dropoff)) {
+        throw Object.assign(new Error("pickup and dropoff must be known nodes"), { status: 400 });
+      }
+      if (!shortestPath(ctx.site, input.pickup, input.dropoff)) {
+        throw Object.assign(
+          new Error(`no route from "${input.pickup}" to "${input.dropoff}"`),
+          { status: 409 },
+        );
+      }
+      const id = `task-${taskCounter++}`;
+      ctx.tasks.set(id, {
+        id,
+        pickup: input.pickup,
+        dropoff: input.dropoff,
+        status: "queued",
+        createdAt: Date.now(),
+      });
+      pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, poseTtlMs });
+      return { ok: true, taskId: id };
+    })
+    .get("/api/sites/:name/tasks", async ({ headers, params }) => {
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      return { tasks: [...ctx.tasks.values()] };
+    })
+    .delete("/api/sites/:name/tasks/:taskId", async ({ headers, params }) => {
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const id = decodeURIComponent(params.taskId);
+      const task = ctx.tasks.get(id);
+      if (!task) throw Object.assign(new Error("unknown task"), { status: 404 });
+      // Assigned tasks are orders in flight — cancel the order instead.
+      if (task.status !== "queued") {
+        throw Object.assign(new Error("only queued tasks can be withdrawn"), { status: 409 });
+      }
+      ctx.tasks.delete(id);
+      return { ok: true };
     })
     .post("/api/sites/:name/orders", async ({ headers, params, body }) => {
       // Authenticate first: a 404 before the token check would let anyone
