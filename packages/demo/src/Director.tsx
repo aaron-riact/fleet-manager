@@ -135,6 +135,10 @@ export default function Director() {
           backend.emitOrders(list);
           setOrders(list);
         },
+        onHistory: (history) => {
+          if (cancelled) return;
+          backend.emitHistory(history);
+        },
       });
       setSerials(fleet.robots.map((r) => r.id.serialNumber));
       await watchRobots(fleet.master, MANUFACTURER, (pose) => {

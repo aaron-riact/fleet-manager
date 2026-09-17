@@ -1,10 +1,11 @@
-import type { Backend, DispatchInput, LivePose, OrderView } from "@fleet-manager/ui";
+import type { Backend, DispatchInput, HistoryView, LivePose, OrderView } from "@fleet-manager/ui";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 
 export interface MemoryBackend extends Backend {
   emitPose(pose: LivePose): void;
   emitLocks(snapshot: LockSnapshot): void;
   emitOrders(orders: OrderView[]): void;
+  emitHistory(history: HistoryView[]): void;
 }
 
 export interface MemoryBackendActions {
@@ -21,6 +22,7 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
   const poseListeners = new Set<(pose: LivePose) => void>();
   const lockListeners = new Set<(snapshot: LockSnapshot) => void>();
   const orderListeners = new Set<(orders: OrderView[]) => void>();
+  const historyListeners = new Set<(history: HistoryView[]) => void>();
 
   const subscribe = <T>(set: Set<(value: T) => void>, listener: (value: T) => void) => {
     set.add(listener);
@@ -40,6 +42,7 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     watchPoses: (_site, onPose) => subscribe(poseListeners, onPose),
     watchLocks: (_site, onLocks) => subscribe(lockListeners, onLocks),
     watchOrders: (_site, onOrders) => subscribe(orderListeners, onOrders),
+    watchHistory: (_site, onHistory) => subscribe(historyListeners, onHistory),
     dispatchOrder: async (site, input) => {
       if (!actions.dispatchOrder) throw new Error(`no dispatcher for site "${site}"`);
       await actions.dispatchOrder(site, input);
@@ -55,5 +58,6 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     emitPose: emit(poseListeners),
     emitLocks: emit(lockListeners),
     emitOrders: emit(orderListeners),
+    emitHistory: emit(historyListeners),
   };
 }

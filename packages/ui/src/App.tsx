@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { login } from "./authClient";
 import { clearSession, loadSession, saveSession } from "./session";
 import { createHttpBackend } from "./backend";
-import type { Backend, LivePose, OrderView } from "./backend";
+import type { Backend, HistoryView, LivePose, OrderView } from "./backend";
 import type { LockSnapshot } from "@fleet-manager/core";
 import { FleetMap } from "./FleetMap";
 import { OrderComposer } from "./OrderComposer";
 import { RobotCards, buildCards } from "./RobotCards";
+import { TaskHistory } from "./TaskHistory";
 import { theme } from "./theme";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
@@ -120,6 +121,7 @@ export function Shell({
   const [poses, setPoses] = useState<Record<string, LivePose>>({});
   const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
   const [orders, setOrders] = useState<OrderView[]>([]);
+  const [history, setHistory] = useState<HistoryView[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +143,9 @@ export function Shell({
           }),
           backend.watchOrders(name, (list) => {
             if (!cancelled) setOrders(list);
+          }),
+          backend.watchHistory(name, (list) => {
+            if (!cancelled) setHistory(list);
           }),
         );
       } catch (e) {
@@ -259,6 +264,7 @@ export function Shell({
                 </h2>
                 <RobotCards cards={cards} backend={backend} siteName={site?.name} />
               </section>
+              <TaskHistory history={history} />
             </div>
           </div>
         )}

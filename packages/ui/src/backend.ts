@@ -20,6 +20,16 @@ export interface OrderView {
   updateId: number;
 }
 
+/** One finished order, newest first. Mirrors the fleet's retained history. */
+export interface HistoryView {
+  orderId: string;
+  serial: string;
+  route: Array<{ nodeId: string; index: number }>;
+  finishedAt: number;
+  outcome: "completed" | "cancelled" | "failed";
+  reason?: string;
+}
+
 export type Unsubscribe = () => void;
 export type EventSourceFactory = (url: string) => {
   onmessage: ((event: { data: string }) => void) | null;
@@ -51,6 +61,7 @@ export interface Backend {
   watchPoses(site: string, onPose: (pose: LivePose) => void): Unsubscribe;
   watchLocks(site: string, onLocks: (snap: LockSnapshot) => void): Unsubscribe;
   watchOrders(site: string, onOrders: (orders: OrderView[]) => void): Unsubscribe;
+  watchHistory(site: string, onHistory: (history: HistoryView[]) => void): Unsubscribe;
   /** Send a tour. Resolves on accept; progress streams over watchOrders. */
   dispatchOrder(site: string, input: DispatchInput): Promise<void>;
   /** Park an idle robot (nearest free spot unless spotId given). */
@@ -63,7 +74,7 @@ function watchStream<T>(
   baseUrl: string,
   token: string,
   site: string,
-  stream: "poses" | "locks" | "orders",
+  stream: "poses" | "locks" | "orders" | "history",
   onEvent: (data: T) => void,
   openEventSource?: EventSourceFactory,
 ): Unsubscribe {
@@ -99,6 +110,7 @@ export function createHttpBackend(
     watchPoses: (site, onPose) => watchStream(baseUrl, token, site, "poses", onPose, openEventSource),
     watchLocks: (site, onLocks) => watchStream(baseUrl, token, site, "locks", onLocks, openEventSource),
     watchOrders: (site, onOrders) => watchStream(baseUrl, token, site, "orders", onOrders, openEventSource),
+    watchHistory: (site, onHistory) => watchStream(baseUrl, token, site, "history", onHistory, openEventSource),
     dispatchOrder: async (site, input) => {
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.post({
         serialNumber: input.serialNumber,
