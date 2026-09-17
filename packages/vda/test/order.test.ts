@@ -102,6 +102,13 @@ describe("order history", () => {
 
   const robot = (serial: string) => ({ manufacturer: "Test", serialNumber: serial });
 
+  test("dispatch resolves the order id for history lookup", async () => {
+    const fleet = new Fleet(stubMaster(), stubLocks());
+    const orderId = await fleet.dispatch(robot("h-id"), waypoints);
+    expect(orderId).toMatch(/^fleet-order-/);
+    expect(fleet.orderHistory().map((h) => h.orderId)).toEqual([orderId]);
+  });
+
   test("failed dispatch records the reason", async () => {
     const fleet = new Fleet(stubMaster(new Error("boom")), stubLocks());
     await expect(fleet.dispatch(robot("h-fail"), waypoints)).rejects.toThrow(/boom/);

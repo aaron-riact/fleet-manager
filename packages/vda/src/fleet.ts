@@ -218,11 +218,15 @@ export class Fleet {
     return this.activeOrders.has(serialNumber);
   }
 
+  /**
+   * Dispatch a tour. Resolves with the order id when the tour completes —
+   * the key into orderHistory() for whatever assigned the work.
+   */
   async dispatch(
     agvId: AgvId,
     waypoints: FleetWaypoint[],
     opts: { from?: { x: number; y: number }; park?: ParkingTarget } = {},
-  ): Promise<void> {
+  ): Promise<string> {
     if (waypoints.length === 0) throw new Error("dispatch needs at least one waypoint");
     const serial = agvId.serialNumber ?? "unknown";
     const existing = this.activeOrders.get(serial);
@@ -309,7 +313,7 @@ export class Fleet {
     agvId: AgvId,
     waypoints: FleetWaypoint[],
     opts: { exits?: boolean } = {},
-  ): Promise<void> {
+  ): Promise<string> {
     const serial = agvId.serialNumber ?? "unknown";
     const orderId = `fleet-order-${dispatchCounter++}`;
     const { order } = buildIncrementalOrder(orderId, waypoints);
@@ -341,7 +345,7 @@ export class Fleet {
       this.emitOrders();
     };
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       let orderUpdateId = 0;
       const released = new Set<number>([0]);
       let baseSeq = 0;
@@ -404,7 +408,7 @@ export class Fleet {
           else finish("completed");
           this.emitOrders();
           if (error) reject(error);
-          else resolve();
+          else resolve(orderId);
         },
       };
 
