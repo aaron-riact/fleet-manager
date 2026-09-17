@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildCards } from "../src/RobotCards.js";
+import { buildCards, filterCards, summarizeCards } from "../src/RobotCards.js";
 
 const pose = (serialNumber: string, x = 1, y = 2, driving = false) => ({
   manufacturer: "m",
@@ -26,5 +26,24 @@ describe("buildCards", () => {
     const cards = buildCards({ r: pose("r", Number.NaN, 0) }, [], undefined);
     expect(cards[0]?.status).toBe("offline");
     expect(buildCards({}, [], undefined)).toEqual([]);
+  });
+});
+
+describe("fleet overview", () => {
+  test("summarizeCards counts every status", () => {
+    const cards = buildCards(
+      { b: pose("b"), a: pose("a", 1, 2, true), r: pose("r", Number.NaN, 0) },
+      [],
+      undefined,
+    );
+    expect(summarizeCards(cards)).toEqual({ driving: 1, waiting: 0, idle: 1, offline: 1 });
+    expect(summarizeCards([])).toEqual({ driving: 0, waiting: 0, idle: 0, offline: 0 });
+  });
+
+  test("filterCards selects one status, all passes through", () => {
+    const cards = buildCards({ b: pose("b"), a: pose("a", 1, 2, true) }, [], undefined);
+    expect(filterCards(cards, "all")).toBe(cards);
+    expect(filterCards(cards, "driving").map((c) => c.serialNumber)).toEqual(["a"]);
+    expect(filterCards(cards, "waiting")).toEqual([]);
   });
 });

@@ -6,9 +6,10 @@ import type { Backend, HistoryView, LivePose, OrderView } from "./backend";
 import type { LockSnapshot } from "@fleet-manager/core";
 import { FleetMap } from "./FleetMap";
 import { OrderComposer } from "./OrderComposer";
-import { RobotCards, buildCards } from "./RobotCards";
+import { RobotCards, buildCards, filterCards, summarizeCards } from "./RobotCards";
+import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
-import { theme } from "./theme";
+import { statusColor, theme } from "./theme";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
 
@@ -122,6 +123,7 @@ export function Shell({
   const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
   const [orders, setOrders] = useState<OrderView[]>([]);
   const [history, setHistory] = useState<HistoryView[]>([]);
+  const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +161,8 @@ export function Shell({
   }, [backend]);
 
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
+  const summary = useMemo(() => summarizeCards(cards), [cards]);
+  const visibleCards = useMemo(() => filterCards(cards, fleetFilter), [cards, fleetFilter]);
   const live = site !== null && error === null;
 
   return (
@@ -260,9 +264,45 @@ export function Shell({
               )}
               <section>
                 <h2 style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: theme.textFaint, margin: "0 0 0.5rem" }}>
-                  Robots · {cards.length}
+                  Robots · {fleetFilter === "all" ? cards.length : `${visibleCards.length} of ${cards.length}`}
                 </h2>
-                <RobotCards cards={cards} backend={backend} siteName={site?.name} />
+                <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                  {(["all", "driving", "waiting", "idle", "offline"] as const).map((f) => {
+                    const active = fleetFilter === f;
+                    const count = f === "all" ? cards.length : summary[f];
+                    return (
+                      <button
+                        key={f}
+                        onClick={() => setFleetFilter(f)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.35rem",
+                          padding: "0.2rem 0.6rem",
+                          borderRadius: 999,
+                          border: `1px solid ${active ? theme.accent : theme.border}`,
+                          background: active ? "rgba(47, 129, 247, 0.15)" : "transparent",
+                          color: active ? theme.text : theme.textDim,
+                          cursor: "pointer",
+                          fontSize: "0.72rem",
+                        }}
+                      >
+                        {f !== "all" && (
+                          <span
+                            style={{
+                              width: 7,
+                              height: 7,
+                              borderRadius: "50%",
+                              background: statusColor(f),
+                            }}
+                          />
+                        )}
+                        {f} · {count}
+                      </button>
+                    );
+                  })}
+                </div>
+                <RobotCards cards={visibleCards} backend={backend} siteName={site?.name} />
               </section>
               <TaskHistory history={history} />
             </div>

@@ -50,6 +50,20 @@ export function buildCards(
     });
 }
 
+export type FleetFilter = RobotStatus | "all";
+
+/** Per-status headcounts for the overview strip. Pure, tested. */
+export function summarizeCards(cards: RobotCardModel[]): Record<RobotStatus, number> {
+  const counts: Record<RobotStatus, number> = { driving: 0, waiting: 0, idle: 0, offline: 0 };
+  for (const card of cards) counts[card.status] += 1;
+  return counts;
+}
+
+/** Overview strip selection. Pure, tested. */
+export function filterCards(cards: RobotCardModel[], filter: FleetFilter): RobotCardModel[] {
+  return filter === "all" ? cards : cards.filter((c) => c.status === filter);
+}
+
 const cardStyle: React.CSSProperties = {
   background: theme.glass,
   border: `1px solid ${theme.borderSoft}`,
