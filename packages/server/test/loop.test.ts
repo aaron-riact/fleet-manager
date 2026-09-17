@@ -106,6 +106,7 @@ describe("full loop over MQTT", () => {
       // subscribe before dispatching: grants and completion both push
       const locks = await StreamReader.open(`${base}/api/sites/coalescent/locks/stream?token=${token}`);
       const orders = await StreamReader.open(`${base}/api/sites/coalescent/orders/stream?token=${token}`);
+      const history = await StreamReader.open(`${base}/api/sites/coalescent/history/stream?token=${token}`);
       try {
         type Locks = { nodeLocks: Array<{ id: string; owners: string[] }> };
         const baseline = (await locks.next()) as Locks;
@@ -146,9 +147,24 @@ describe("full loop over MQTT", () => {
           if (sighted) break;
           if (Date.now() > deadline) throw new Error("tour did not complete in time");
         }
+
+        // …and the finished tour lands in history exactly once
+        type History = Array<{ serial: string; outcome: string }>;
+        const historyDeadline = Date.now() + 45_000;
+        for (;;) {
+          const frame = (await history.next(15_000)) as History;
+          if (!Array.isArray(frame) || frame.length === 0) {
+            if (Date.now() > historyDeadline) throw new Error("history did not record the tour");
+            continue;
+          }
+          expect(frame).toHaveLength(1);
+          expect(frame[0]).toMatchObject({ serial: "loop-1", outcome: "completed" });
+          break;
+        }
       } finally {
         await locks.close();
         await orders.close();
+        await history.close();
       }
     } finally {
       await robot.stop();

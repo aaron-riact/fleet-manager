@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { bootSiteFleet, watchRobots } from "@fleet-manager/vda";
-import type { ActiveOrder, RobotPose, SiteFleet } from "@fleet-manager/vda";
+import type { ActiveOrder, OrderHistory, RobotPose, SiteFleet } from "@fleet-manager/vda";
 import { freeSpot, occupiedSpots } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
@@ -174,6 +174,7 @@ export function freshPoses(
 export interface SiteContext extends SiteFleet {
   lockSubs: Set<(snapshot: LockSnapshot) => void>;
   orderSubs: Set<(orders: ActiveOrder[]) => void>;
+  historySubs: Set<(history: OrderHistory[]) => void>;
   poseSubs: Set<(pose: RobotPose) => void>;
   /** Latest pose per robot, with the time it arrived. See TrackedPose. */
   poses: Map<string, TrackedPose>;
@@ -202,6 +203,7 @@ export async function buildSiteContexts(
     const via = options.brokerUrl ?? "memory bus";
     const lockSubs = new Set<(snapshot: LockSnapshot) => void>();
     const orderSubs = new Set<(orders: ActiveOrder[]) => void>();
+    const historySubs = new Set<(history: OrderHistory[]) => void>();
     const poseSubs = new Set<(pose: RobotPose) => void>();
     const poses = new Map<string, TrackedPose>();
     const fleet = await bootSiteFleet(
@@ -213,6 +215,9 @@ export async function buildSiteContexts(
         },
         onOrders: (orders) => {
           for (const send of [...orderSubs]) send(orders);
+        },
+        onHistory: (history) => {
+          for (const send of [...historySubs]) send(history);
         },
       },
       options.brokerUrl ? { brokerUrl: options.brokerUrl } : {},
@@ -237,6 +242,7 @@ export async function buildSiteContexts(
       ...fleet,
       lockSubs,
       orderSubs,
+      historySubs,
       poseSubs,
       poses,
       stop: async () => {
@@ -342,6 +348,8 @@ export function buildApp(
         return liveStream(ctx.locks.snapshot(), (send) => fanOut(ctx.lockSubs, send));
       if (params.stream === "orders")
         return liveStream(ctx.fleet.activeOrderList(), (send) => fanOut(ctx.orderSubs, send));
+      if (params.stream === "history")
+        return liveStream(ctx.fleet.orderHistory(), (send) => fanOut(ctx.historySubs, send));
       if (params.stream === "poses")
         return liveStream<RobotPose>(undefined, (send) => fanOut(ctx.poseSubs, send));
       throw Object.assign(new Error("unknown stream"), { status: 404 });
