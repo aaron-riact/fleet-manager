@@ -106,16 +106,19 @@ describe("createHttpBackend", () => {
     const locks: unknown[] = [];
     const orders: unknown[] = [];
     const history: unknown[] = [];
+    const conns: unknown[] = [];
     const un1 = backend.watchPoses("coalescent", (p) => void poses.push(p));
     const un2 = backend.watchLocks("coalescent", (s) => void locks.push(s));
     const un3 = backend.watchOrders("coalescent", (o) => void orders.push(o));
     const un4 = backend.watchHistory("coalescent", (h) => void history.push(h));
+    const un5 = backend.watchConnections("coalescent", (c) => void conns.push(c));
 
     expect(opened).toEqual([
       "http://x/api/sites/coalescent/poses/stream?token=t",
       "http://x/api/sites/coalescent/locks/stream?token=t",
       "http://x/api/sites/coalescent/orders/stream?token=t",
       "http://x/api/sites/coalescent/history/stream?token=t",
+      "http://x/api/sites/coalescent/connections/stream?token=t",
     ]);
 
     sources[0]!.onmessage!({ data: JSON.stringify({ serialNumber: "r1", x: 1, y: 2 }) });
@@ -123,15 +126,18 @@ describe("createHttpBackend", () => {
     sources[1]!.onmessage!({ data: JSON.stringify({ nodeLocks: [], edgeLocks: [] }) });
     sources[2]!.onmessage!({ data: JSON.stringify([]) });
     sources[3]!.onmessage!({ data: JSON.stringify([]) });
+    sources[4]!.onmessage!({ data: JSON.stringify([]) });
     expect(poses).toHaveLength(1);
     expect(locks).toHaveLength(1);
     expect(orders).toHaveLength(1);
     expect(history).toHaveLength(1);
+    expect(conns).toHaveLength(1);
 
     un1();
     un2();
     un3();
     un4();
+    un5();
     expect(sources.every((s) => s.closed)).toBe(true);
   });
 

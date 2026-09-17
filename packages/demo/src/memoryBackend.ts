@@ -1,4 +1,11 @@
-import type { Backend, DispatchInput, HistoryView, LivePose, OrderView } from "@fleet-manager/ui";
+import type {
+  Backend,
+  ConnectionView,
+  DispatchInput,
+  HistoryView,
+  LivePose,
+  OrderView,
+} from "@fleet-manager/ui";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 
 export interface MemoryBackend extends Backend {
@@ -6,6 +13,7 @@ export interface MemoryBackend extends Backend {
   emitLocks(snapshot: LockSnapshot): void;
   emitOrders(orders: OrderView[]): void;
   emitHistory(history: HistoryView[]): void;
+  emitConnections(conns: ConnectionView[]): void;
 }
 
 export interface MemoryBackendActions {
@@ -23,6 +31,7 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
   const lockListeners = new Set<(snapshot: LockSnapshot) => void>();
   const orderListeners = new Set<(orders: OrderView[]) => void>();
   const historyListeners = new Set<(history: HistoryView[]) => void>();
+  const connListeners = new Set<(conns: ConnectionView[]) => void>();
 
   const subscribe = <T>(set: Set<(value: T) => void>, listener: (value: T) => void) => {
     set.add(listener);
@@ -43,6 +52,7 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     watchLocks: (_site, onLocks) => subscribe(lockListeners, onLocks),
     watchOrders: (_site, onOrders) => subscribe(orderListeners, onOrders),
     watchHistory: (_site, onHistory) => subscribe(historyListeners, onHistory),
+    watchConnections: (_site, onConns) => subscribe(connListeners, onConns),
     dispatchOrder: async (site, input) => {
       if (!actions.dispatchOrder) throw new Error(`no dispatcher for site "${site}"`);
       await actions.dispatchOrder(site, input);
@@ -59,5 +69,6 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     emitLocks: emit(lockListeners),
     emitOrders: emit(orderListeners),
     emitHistory: emit(historyListeners),
+    emitConnections: emit(connListeners),
   };
 }

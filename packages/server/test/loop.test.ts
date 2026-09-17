@@ -107,6 +107,7 @@ describe("full loop over MQTT", () => {
       const locks = await StreamReader.open(`${base}/api/sites/coalescent/locks/stream?token=${token}`);
       const orders = await StreamReader.open(`${base}/api/sites/coalescent/orders/stream?token=${token}`);
       const history = await StreamReader.open(`${base}/api/sites/coalescent/history/stream?token=${token}`);
+      const conns = await StreamReader.open(`${base}/api/sites/coalescent/connections/stream?token=${token}`);
       try {
         type Locks = { nodeLocks: Array<{ id: string; owners: string[] }> };
         const baseline = (await locks.next()) as Locks;
@@ -161,10 +162,23 @@ describe("full loop over MQTT", () => {
           expect(frame[0]).toMatchObject({ serial: "loop-1", outcome: "completed" });
           break;
         }
+
+        // …and the master tracks the robot as online
+        type Conn = { serialNumber: string; manufacturer: string; state: string };
+        const connDeadline = Date.now() + 45_000;
+        let seen: Conn | undefined;
+        while (!seen) {
+          const frame = (await conns.next(15_000)) as Conn[] | Conn;
+          const list = Array.isArray(frame) ? frame : [frame];
+          seen = list.find((c) => c.serialNumber === "loop-1" && c.state === "ONLINE");
+          if (!seen && Date.now() > connDeadline) throw new Error("robot never tracked online");
+        }
+        expect(seen).toMatchObject({ serialNumber: "loop-1", manufacturer: "RobotCompany", state: "ONLINE" });
       } finally {
         await locks.close();
         await orders.close();
         await history.close();
+        await conns.close();
       }
     } finally {
       await robot.stop();

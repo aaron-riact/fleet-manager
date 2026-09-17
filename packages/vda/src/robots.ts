@@ -35,6 +35,50 @@ interface TopicAccess {
   ): Promise<string>;
 }
 
+export interface RobotConnection {
+  manufacturer: string;
+  serialNumber: string;
+  /** VDA connection state: ONLINE, OFFLINE, or CONNECTIONBROKEN. */
+  state: string;
+  timestamp: string;
+}
+
+interface ConnectionTracker {
+  trackAgvs(
+    handler: (
+      subject: { manufacturer?: string; serialNumber?: string },
+      state: string,
+      timestamp: string,
+    ) => void,
+  ): void;
+}
+
+/**
+ * Lifecycle connection states for every AGV the master tracks. Known
+ * states replay synchronously on subscribe (baseline); changes push.
+ * The lib chains track handlers permanently, so unsubscribe only stops
+ * delivery — subscribe once per master, not per stream.
+ */
+export function watchConnections(
+  master: MasterController,
+  onConnection: (conn: RobotConnection) => void,
+): () => void {
+  const tracker = master as unknown as ConnectionTracker;
+  let stopped = false;
+  tracker.trackAgvs((subject, state, timestamp) => {
+    if (stopped || typeof subject.serialNumber !== "string") return;
+    onConnection({
+      manufacturer: subject.manufacturer ?? "unknown",
+      serialNumber: subject.serialNumber,
+      state,
+      timestamp,
+    });
+  });
+  return () => {
+    stopped = true;
+  };
+}
+
 /**
  * Live robot poses from state traffic. With a manufacturer, only that
  * maker's robots; without, all of them (the lib wildcards missing

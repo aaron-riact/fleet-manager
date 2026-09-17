@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
-import { watchRobots } from "@fleet-manager/vda";
+import { watchConnections, watchRobots } from "@fleet-manager/vda";
 import { freeSpot } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
-import type { RobotPose } from "@fleet-manager/vda";
+import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
 import { Fleet } from "@fleet-manager/vda";
 import type { ActiveOrder } from "@fleet-manager/vda";
 import { App } from "@fleet-manager/ui";
@@ -100,6 +100,7 @@ export default function Director() {
 
   useEffect(() => {
     let cancelled = false;
+    let stopConns: (() => void) | undefined;
     (async () => {
       const spots = site.parking ?? [];
       const fleet = await bootFleet({
@@ -147,6 +148,12 @@ export default function Director() {
         backend.emitPose(pose);
         setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
       });
+      const conns: Record<string, RobotConnection> = {};
+      stopConns = watchConnections(fleet.master, (conn) => {
+        if (cancelled) return;
+        conns[conn.serialNumber] = conn;
+        backend.emitConnections(Object.values(conns));
+      });
       fleet.hub.subscribe("#", (topic) => {
         if (cancelled || /\/state$/.test(topic)) return;
         setLog((prev) => [...prev.slice(-119), topic]);
@@ -155,6 +162,7 @@ export default function Director() {
     })().catch((e) => !cancelled && setStatus(`boot failed: ${(e as Error).message}`));
     return () => {
       cancelled = true;
+      stopConns?.();
       fleetRef.current?.stop().catch(() => {});
       fleetRef.current = null;
     };

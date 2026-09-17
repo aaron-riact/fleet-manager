@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
-import { bootSiteFleet, watchRobots } from "@fleet-manager/vda";
-import type { ActiveOrder, OrderHistory, RobotPose, SiteFleet } from "@fleet-manager/vda";
+import { bootSiteFleet, watchConnections, watchRobots } from "@fleet-manager/vda";
+import type { ActiveOrder, OrderHistory, RobotConnection, RobotPose, SiteFleet } from "@fleet-manager/vda";
 import { freeSpot, occupiedSpots } from "@fleet-manager/core";
 import type { LockSnapshot, Site } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
@@ -176,8 +176,11 @@ export interface SiteContext extends SiteFleet {
   orderSubs: Set<(orders: ActiveOrder[]) => void>;
   historySubs: Set<(history: OrderHistory[]) => void>;
   poseSubs: Set<(pose: RobotPose) => void>;
+  connSubs: Set<(conns: RobotConnection[]) => void>;
   /** Latest pose per robot, with the time it arrived. See TrackedPose. */
   poses: Map<string, TrackedPose>;
+  /** Latest master-tracked connection state per robot. */
+  conns: Map<string, RobotConnection>;
 }
 
 export async function buildSiteContexts(
@@ -205,7 +208,9 @@ export async function buildSiteContexts(
     const orderSubs = new Set<(orders: ActiveOrder[]) => void>();
     const historySubs = new Set<(history: OrderHistory[]) => void>();
     const poseSubs = new Set<(pose: RobotPose) => void>();
+    const connSubs = new Set<(conns: RobotConnection[]) => void>();
     const poses = new Map<string, TrackedPose>();
+    const conns = new Map<string, RobotConnection>();
     const fleet = await bootSiteFleet(
       site,
       interfaceName,
@@ -237,6 +242,13 @@ export async function buildSiteContexts(
       }
       for (const send of [...poseSubs]) send(pose);
     });
+    // One subscription per master: the lib chains track handlers
+    // permanently, so this must not run per stream.
+    const stopConns = watchConnections(fleet.master, (conn) => {
+      conns.set(conn.serialNumber, conn);
+      const all = [...conns.values()];
+      for (const send of [...connSubs]) send(all);
+    });
     log(`site ${name}: interface ${interfaceName} via ${via}`);
     contexts.set(name, {
       ...fleet,
@@ -244,8 +256,11 @@ export async function buildSiteContexts(
       orderSubs,
       historySubs,
       poseSubs,
+      connSubs,
       poses,
+      conns,
       stop: async () => {
+        stopConns();
         stopPoses();
         await fleet.stop();
       },
@@ -352,6 +367,8 @@ export function buildApp(
         return liveStream(ctx.fleet.orderHistory(), (send) => fanOut(ctx.historySubs, send));
       if (params.stream === "poses")
         return liveStream<RobotPose>(undefined, (send) => fanOut(ctx.poseSubs, send));
+      if (params.stream === "connections")
+        return liveStream([...ctx.conns.values()], (send) => fanOut(ctx.connSubs, send));
       throw Object.assign(new Error("unknown stream"), { status: 404 });
     })
     .post("/api/logout", async ({ headers }) => {

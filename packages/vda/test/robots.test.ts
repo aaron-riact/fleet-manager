@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { AgvController, MasterController, VirtualAgvAdapter } from "vda-5050-lib";
 import type { AgvId, ClientOptions } from "vda-5050-lib";
-import { watchRobots } from "../src/robots.js";
-import type { RobotPose } from "../src/robots.js";
+import { watchConnections, watchRobots } from "../src/robots.js";
+import type { RobotConnection, RobotPose } from "../src/robots.js";
 import { MemoryHub, attachMemoryTransport } from "../src/fakeMqtt.js";
 
 const options: ClientOptions = {
@@ -84,6 +84,36 @@ describe("watchRobots", () => {
     expect(Number.isNaN(seen[0]!.x)).toBe(true);
     expect(seen[0]!.batteryCharge).toBeUndefined();
   });
+
+  test("tracks ONLINE for running AGVs", async () => {
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+    const controller = await startAgv(hub, "RobotCompany", "conn-1");
+    try {
+      const latest = new Map<string, RobotConnection>();
+      const stop = watchConnections(master, (conn) => {
+        latest.set(conn.serialNumber, conn);
+      });
+      try {
+        const deadline = Date.now() + 10_000;
+        while (latest.get("conn-1")?.state !== "ONLINE" && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(latest.get("conn-1")).toMatchObject({
+          manufacturer: "RobotCompany",
+          serialNumber: "conn-1",
+          state: "ONLINE",
+        });
+      } finally {
+        stop();
+      }
+    } finally {
+      await controller.stop();
+      await master.stop();
+    }
+  }, 15_000);
 
   test("wildcard manufacturer sees every maker", async () => {
     const hub = new MemoryHub();

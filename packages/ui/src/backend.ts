@@ -27,6 +27,14 @@ export interface OrderView {
   updateId: number;
 }
 
+/** Master-tracked link state per robot (ONLINE, OFFLINE, CONNECTIONBROKEN). */
+export interface ConnectionView {
+  manufacturer: string;
+  serialNumber: string;
+  state: string;
+  timestamp: string;
+}
+
 /** One finished order, newest first. Mirrors the fleet's retained history. */
 export interface HistoryView {
   orderId: string;
@@ -69,6 +77,7 @@ export interface Backend {
   watchLocks(site: string, onLocks: (snap: LockSnapshot) => void): Unsubscribe;
   watchOrders(site: string, onOrders: (orders: OrderView[]) => void): Unsubscribe;
   watchHistory(site: string, onHistory: (history: HistoryView[]) => void): Unsubscribe;
+  watchConnections(site: string, onConns: (conns: ConnectionView[]) => void): Unsubscribe;
   /** Send a tour. Resolves on accept; progress streams over watchOrders. */
   dispatchOrder(site: string, input: DispatchInput): Promise<void>;
   /** Park an idle robot (nearest free spot unless spotId given). */
@@ -81,7 +90,7 @@ function watchStream<T>(
   baseUrl: string,
   token: string,
   site: string,
-  stream: "poses" | "locks" | "orders" | "history",
+  stream: "poses" | "locks" | "orders" | "history" | "connections",
   onEvent: (data: T) => void,
   openEventSource?: EventSourceFactory,
 ): Unsubscribe {
@@ -118,6 +127,7 @@ export function createHttpBackend(
     watchLocks: (site, onLocks) => watchStream(baseUrl, token, site, "locks", onLocks, openEventSource),
     watchOrders: (site, onOrders) => watchStream(baseUrl, token, site, "orders", onOrders, openEventSource),
     watchHistory: (site, onHistory) => watchStream(baseUrl, token, site, "history", onHistory, openEventSource),
+    watchConnections: (site, onConns) => watchStream(baseUrl, token, site, "connections", onConns, openEventSource),
     dispatchOrder: async (site, input) => {
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.post({
         serialNumber: input.serialNumber,
