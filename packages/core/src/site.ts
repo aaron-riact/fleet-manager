@@ -108,6 +108,26 @@ export const SiteLocationSchema = z
 
 export type SiteLocation = z.infer<typeof SiteLocationSchema>;
 
+/**
+ * Raster backdrop under the vector map (a scanned floor plan, a site
+ * photo). World rectangle in meters, y-up; the frontend stretches the
+ * image over it. The URI is operator-provided — absolute or relative to
+ * whatever serves the UI — the server stores no image bytes.
+ */
+export const MapUnderlaySchema = z
+  .object({
+    uri: z.string().min(1),
+    minX: z.number().finite(),
+    minY: z.number().finite(),
+    maxX: z.number().finite(),
+    maxY: z.number().finite(),
+  })
+  .refine((u) => u.minX < u.maxX && u.minY < u.maxY, {
+    message: "underlay needs a non-empty world rectangle (min < max)",
+  });
+
+export type MapUnderlay = z.infer<typeof MapUnderlaySchema>;
+
 export const SiteSchema = z
   .object({
     name: z.string().min(1),
@@ -115,6 +135,7 @@ export const SiteSchema = z
     links: z.array(MapLinkSchema),
     parking: z.array(ParkingSpotSchema).optional(),
     locations: z.array(SiteLocationSchema).optional(),
+    underlay: MapUnderlaySchema.optional(),
   })
   .refine(
     (site) => {

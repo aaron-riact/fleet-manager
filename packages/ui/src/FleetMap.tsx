@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import type { LockSnapshot, ParkingSpot, Site } from "@fleet-manager/core";
-import { boundsOf, groupByZone, indexNodes, stationPoses, toSvg, viewBoxFor, zoneColor } from "./map";
+import { boundsOf, groupByZone, indexNodes, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map";
 
 export interface RobotDot {
   serialNumber: string;
@@ -30,6 +30,10 @@ export function FleetMap({
   waits?: OrderWait[];
 }) {
   const bounds = useMemo(() => boundsOf(site), [site]);
+  const underlay = useMemo(
+    () => (site.underlay ? underlayRect(site.underlay, bounds) : undefined),
+    [site, bounds],
+  );
   const byId = useMemo(() => indexNodes(site.nodes), [site]);
   const nodeState = useMemo(() => new Map((locks?.nodeLocks ?? []).map((n) => [n.id, n])), [locks]);
   const edgeHeld = useMemo(() => {
@@ -45,6 +49,17 @@ export function FleetMap({
       aria-label={`Map of ${site.name}`}
       style={{ width: "100%", height: "auto", background: "#0b0e14", borderRadius: 12 }}
     >
+      {site.underlay && underlay && (
+        <image
+          href={site.underlay.uri}
+          x={underlay.x}
+          y={underlay.y}
+          width={underlay.width}
+          height={underlay.height}
+          opacity={0.55}
+          preserveAspectRatio="none"
+        />
+      )}
       <g id="graph-edges" strokeWidth={0.08}>
         {site.links.map((link, i) => {
           const from = byId.get(link.source);

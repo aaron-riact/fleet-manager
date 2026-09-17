@@ -19,6 +19,18 @@ describe("site schema", () => {
     expect(parseSite(JSON.stringify(loop)).name).toBe("demo-loop");
   });
 
+  test("optional underlay parses; empty rectangles rejected", () => {
+    const underlay = { uri: "maps/hall.png", minX: -5, minY: -2, maxX: 15, maxY: 10 };
+    expect(parseSite(JSON.stringify(loop)).underlay).toBeUndefined();
+    expect(parseSite(JSON.stringify({ ...loop, underlay })).underlay).toEqual(underlay);
+    expect(() =>
+      parseSite(JSON.stringify({ ...loop, underlay: { ...underlay, maxX: underlay.minX } })),
+    ).toThrow(/non-empty world rectangle/);
+    expect(() =>
+      parseSite(JSON.stringify({ ...loop, underlay: { ...underlay, uri: "" } })),
+    ).toThrow();
+  });
+
   test("rejects dangling links, empty nodes, bad JSON", () => {
     expect(() =>
       parseSite(JSON.stringify({ ...loop, links: [{ source: "a", destination: "ghost" }] })),

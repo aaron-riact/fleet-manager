@@ -1,4 +1,4 @@
-import type { MapNode, Site, SiteLocation, SitePose } from "@fleet-manager/core";
+import type { MapNode, MapUnderlay, Site, SiteLocation, SitePose } from "@fleet-manager/core";
 import { theme } from "./theme";
 
 export interface Bounds {
@@ -13,7 +13,9 @@ export interface Bounds {
  * parking spots and station poses. Nodes alone would clip anything that
  * sits off the graph, which is exactly where stations tend to be.
  */
-export function boundsOf(site: Pick<Site, "nodes"> & Partial<Pick<Site, "parking" | "locations">>): Bounds {
+export function boundsOf(
+  site: Pick<Site, "nodes"> & Partial<Pick<Site, "parking" | "locations" | "underlay">>,
+): Bounds {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -30,7 +32,23 @@ export function boundsOf(site: Pick<Site, "nodes"> & Partial<Pick<Site, "parking
     if (l.pickPose) include(l.pickPose.x, l.pickPose.y);
     if (l.dropPose) include(l.dropPose.x, l.dropPose.y);
   }
+  // The backdrop must never be clipped by the graph it sits under.
+  if (site.underlay) {
+    include(site.underlay.minX, site.underlay.minY);
+    include(site.underlay.maxX, site.underlay.maxY);
+  }
   return { minX, minY, maxX, maxY };
+}
+
+/** Underlay image rectangle in SVG coords (y-down). Pure, tested. */
+export function underlayRect(underlay: MapUnderlay, bounds: Bounds): { x: number; y: number; width: number; height: number } {
+  const topLeft = toSvg(underlay.minX, underlay.maxY, bounds);
+  return {
+    x: topLeft.x,
+    y: topLeft.y,
+    width: underlay.maxX - underlay.minX,
+    height: underlay.maxY - underlay.minY,
+  };
 }
 
 /** Map meters (y-up) to SVG coords (y-down), origin at bounds min. */

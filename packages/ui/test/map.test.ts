@@ -5,6 +5,7 @@ import {
   indexNodes,
   stationPoses,
   toSvg,
+  underlayRect,
   viewBoxFor,
   zoneColor,
 } from "../src/map.js";
@@ -42,6 +43,16 @@ describe("map projection", () => {
     ]);
     expect([...groups.keys()].sort()).toEqual(["", "docks"]);
     expect(groups.get("docks")?.map((l) => l.id)).toEqual(["a", "b"]);
+  });
+
+  test("underlay rect maps the world rectangle into SVG, bounds include it", () => {
+    const underlay = { uri: "hall.png", minX: -4, minY: -2, maxX: 12, maxY: 10 };
+    const b = boundsOf({ nodes, underlay });
+    expect(b).toEqual({ minX: -4, minY: -2, maxX: 12, maxY: 10 });
+    // y-flip: world top (maxY) lands at SVG y 0
+    expect(underlayRect(underlay, b)).toEqual({ x: 0, y: 0, width: 16, height: 12 });
+    // without an underlay the graph sets the bounds alone
+    expect(boundsOf({ nodes })).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 8 });
   });
 
   test("bounds cover parking and stations, not just nodes", () => {
