@@ -46,6 +46,10 @@ describe("watchRobots", () => {
         expect(pose).toBeDefined();
         expect(Number.isFinite(pose!.x)).toBe(true);
         expect(Number.isFinite(pose!.y)).toBe(true);
+        expect(typeof pose!.charging).toBe("boolean");
+        expect(typeof pose!.positionInitialized).toBe("boolean");
+        expect(typeof pose!.eStop).toBe("boolean");
+        expect(typeof pose!.fieldViolation).toBe("boolean");
       } finally {
         stop();
       }
@@ -54,6 +58,32 @@ describe("watchRobots", () => {
       await master.stop();
     }
   }, 15_000);
+
+  test("sparse state degrades to safe defaults", async () => {
+    const stub = {
+      subscribeTopic: async (_t: unknown, _s: unknown, handler: (o: unknown) => void) => {
+        handler({ serialNumber: "sparse-1" });
+        return "sub-1";
+      },
+      unsubscribe: async () => {},
+    };
+    const seen: RobotPose[] = [];
+    const stop = await watchRobots(stub as unknown as MasterController, undefined, (p) =>
+      void seen.push(p),
+    );
+    stop();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      serialNumber: "sparse-1",
+      manufacturer: "unknown",
+      charging: false,
+      positionInitialized: false,
+      eStop: false,
+      fieldViolation: false,
+    });
+    expect(Number.isNaN(seen[0]!.x)).toBe(true);
+    expect(seen[0]!.batteryCharge).toBeUndefined();
+  });
 
   test("wildcard manufacturer sees every maker", async () => {
     const hub = new MemoryHub();

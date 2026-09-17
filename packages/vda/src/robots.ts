@@ -8,6 +8,16 @@ export interface RobotPose {
   y: number;
   theta: number;
   driving: boolean;
+  /** True while the AGV reports charging in progress. */
+  charging: boolean;
+  /** State of charge in percent, when the AGV reports one. */
+  batteryCharge?: number;
+  batteryVoltage?: number;
+  /** False until the AGV trusts its own position — never treat as placed. */
+  positionInitialized: boolean;
+  /** Any active e-stop (AUTOACK, MANUAL, or REMOTE — never the NONE value). */
+  eStop: boolean;
+  fieldViolation: boolean;
 }
 
 interface TopicAccess {
@@ -17,8 +27,10 @@ interface TopicAccess {
     handler: (object: {
       manufacturer?: string;
       serialNumber?: string;
-      agvPosition?: { x?: number; y?: number; theta?: number };
+      agvPosition?: { x?: number; y?: number; theta?: number; positionInitialized?: boolean };
       driving?: boolean;
+      batteryState?: { charging?: boolean; batteryCharge?: number; batteryVoltage?: number };
+      safetyState?: { eStop?: string; fieldViolation?: boolean };
     }) => void,
   ): Promise<string>;
 }
@@ -37,6 +49,8 @@ export async function watchRobots(
   const subject = manufacturer === undefined ? {} : { manufacturer };
   const id = await access.subscribeTopic(Topic.State, subject, (object) => {
     if (typeof object.serialNumber !== "string") return;
+    // Sparse states degrade to safe defaults: not charging, unplaced,
+    // no e-stop. Callers must never read these as live telemetry.
     onPose({
       manufacturer: manufacturer ?? object.manufacturer ?? "unknown",
       serialNumber: object.serialNumber,
@@ -44,6 +58,16 @@ export async function watchRobots(
       y: object.agvPosition?.y ?? Number.NaN,
       theta: object.agvPosition?.theta ?? 0,
       driving: object.driving ?? false,
+      charging: object.batteryState?.charging ?? false,
+      ...(object.batteryState?.batteryCharge === undefined
+        ? {}
+        : { batteryCharge: object.batteryState.batteryCharge }),
+      ...(object.batteryState?.batteryVoltage === undefined
+        ? {}
+        : { batteryVoltage: object.batteryState.batteryVoltage }),
+      positionInitialized: object.agvPosition?.positionInitialized ?? false,
+      eStop: object.safetyState?.eStop !== undefined && object.safetyState.eStop !== "NONE",
+      fieldViolation: object.safetyState?.fieldViolation ?? false,
     });
   });
   void id;

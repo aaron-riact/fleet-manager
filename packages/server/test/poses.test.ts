@@ -9,6 +9,10 @@ const at = (serialNumber: string, seenAt: number): TrackedPose => ({
   y: 0,
   theta: 0,
   driving: false,
+  charging: false,
+  positionInitialized: true,
+  eStop: false,
+  fieldViolation: false,
   seenAt,
 });
 
