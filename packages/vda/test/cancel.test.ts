@@ -74,6 +74,10 @@ describe("Fleet.cancel", () => {
       expect(snap.nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
       expect(snap.edgeLocks.every((e) => !e.held)).toBe(true);
       await expect(driving).rejects.toThrow(/cancelled/);
+      const history = fleet.orderHistory();
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({ serial: "cx-1", outcome: "cancelled" });
+      expect(fleet.activeOrderList()).toEqual([]);
     } finally {
       await controller.stop();
       await master.stop();

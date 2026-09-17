@@ -93,7 +93,32 @@ export interface FleetEvents {
   onLocks?: (snapshot: LockSnapshot) => void;
   onOrders?: (orders: ActiveOrder[]) => void;
   onArrived?: (serial: string, nodeId: string, index: number) => void;
+  /** Retained history after each lifecycle end (history views). */
+  onHistory?: (history: OrderHistory[]) => void;
 }
+
+export type OrderOutcome = "completed" | "cancelled" | "failed";
+
+/** One retained order, written once when it leaves the active set. */
+export interface OrderHistory {
+  orderId: string;
+  serial: string;
+  /** Robot-reported traversal, in order. */
+  route: Array<{ nodeId: string; index: number }>;
+  finishedAt: number;
+  outcome: OrderOutcome;
+  /** Outcome detail: rejection message or the dispatch error. */
+  reason?: string;
+}
+
+export interface FleetHistoryOptions {
+  /** Keep at most this many records per site (default 500, oldest dropped). */
+  maxEntries?: number;
+  /** Absolute unix ms cutoff; entries older than it are dropped. */
+  maxAgeMs?: number;
+}
+
+const DEFAULT_MAX_ENTRIES = 500;
 
 let dispatchCounter = 1;
 
@@ -108,12 +133,19 @@ export class Fleet {
   private readonly activeOrders = new Map<string, ActiveOrder>();
   private readonly pathLockers = new Map<string, PathLocker>();
   private readonly cancelled = new Set<string>();
+  private readonly history: OrderHistory[] = [];
+  private readonly maxEntries: number;
+  private readonly maxAgeMs: number | undefined;
 
   constructor(
     private readonly master: MasterController,
     private readonly locks: FleetLocks,
     private readonly events: FleetEvents = {},
-  ) {}
+    history: FleetHistoryOptions = {},
+  ) {
+    this.maxEntries = history.maxEntries ?? DEFAULT_MAX_ENTRIES;
+    this.maxAgeMs = history.maxAgeMs;
+  }
 
   private emit(): void {
     try {
@@ -131,9 +163,54 @@ export class Fleet {
     }
   }
 
+  private emitHistory(): void {
+    try {
+      this.events.onHistory?.(this.orderHistory());
+    } catch {
+      /* listener errors must not break dispatch */
+    }
+  }
+
   /** Orders in flight right now (stream baselines, status views). */
   activeOrderList(): ActiveOrder[] {
     return [...this.activeOrders.values()];
+  }
+
+  /** Retained history: finished orders, newest first. */
+  orderHistory(): OrderHistory[] {
+    const cutoff =
+      this.maxAgeMs === undefined
+        ? undefined
+        : Date.now() - this.maxAgeMs;
+    if (cutoff !== undefined) {
+      for (let i = this.history.length - 1; i >= 0; i--) {
+        if (this.history[i]!.finishedAt < cutoff) this.history.splice(i, 1);
+      }
+    }
+    return [...this.history].reverse();
+  }
+
+  /**
+   * Retain one finished order. Called exactly once per lifecycle end,
+   * with the error already classified into an outcome.
+   */
+  private record(
+    orderId: string,
+    serial: string,
+    route: Array<{ nodeId: string; index: number }>,
+    outcome: OrderOutcome,
+    reason?: string,
+  ): void {
+    this.history.push({
+      orderId,
+      serial,
+      route,
+      finishedAt: Date.now(),
+      outcome,
+      ...(reason === undefined ? {} : { reason }),
+    });
+    while (this.history.length > this.maxEntries) this.history.shift();
+    this.emitHistory();
   }
 
   /** True while the robot has an order in flight. */
@@ -238,6 +315,21 @@ export class Fleet {
     const { order } = buildIncrementalOrder(orderId, waypoints);
     const nodeIds = waypoints.map((w) => w.nodeId);
     const locker = this.locks.lockerFor(serial);
+    // Robot-reported traversal; indexed by sequenceId, not node id (loop
+    // tours revisit nodes). History-grade: also used to build the route.
+    const traversed: Array<{ nodeId: string; index: number }> = [];
+    // An order ends once. The lib can both invoke onOrderProcessed and
+    // reject the assign promise for the same order, so without this the
+    // same tour is recorded twice — and a mid-tour release failure was
+    // recorded not at all.
+    let finished = false;
+    const finish = (outcome: OrderOutcome, reason?: string) => {
+      if (finished) return;
+      finished = true;
+      this.record(orderId, serial, traversed, outcome, reason);
+    };
+    const failureReason = (error: unknown) =>
+      error instanceof Error ? error.message : String(error);
 
     const track = (releasedSeqs: Set<number>, updateId: number) => {
       this.activeOrders.set(serial, {
@@ -264,7 +356,14 @@ export class Fleet {
         for (const s of seqs) released.add(s);
         const update = stitchRelease(order, [...released], ++orderUpdateId, baseSeq);
         track(released, orderUpdateId);
-        this.master.assignOrder(agvId, update, callbacks as never).catch(reject);
+        this.master.assignOrder(agvId, update, callbacks as never).catch((error: unknown) => {
+          // A release that fails ends the tour like any other failure;
+          // rejecting without recording lost it from the history.
+          this.activeOrders.delete(serial);
+          finish("failed", failureReason(error));
+          this.emitOrders();
+          reject(error);
+        });
       };
 
       const callbacks = {
@@ -278,6 +377,7 @@ export class Fleet {
           if (index >= 0 && index < nodeIds.length) {
             baseSeq = Math.max(baseSeq, index * 2);
             granting.arrivedAt(index);
+            traversed.push({ nodeId: node.nodeId, index });
             this.events.onArrived?.(serial, node.nodeId, index);
             this.emit();
           }
@@ -288,6 +388,7 @@ export class Fleet {
           if (this.cancelled.has(serial)) {
             this.cancelled.delete(serial);
             this.activeOrders.delete(serial);
+            finish("cancelled");
             this.emitOrders();
             this.emit();
             reject(new Error(`order cancelled for robot "${serial}"`));
@@ -299,6 +400,8 @@ export class Fleet {
           else granting.clearAllExceptLastPathLocks();
           this.emit();
           this.activeOrders.delete(serial);
+          if (error) finish("failed", failureReason(error));
+          else finish("completed");
           this.emitOrders();
           if (error) reject(error);
           else resolve();
@@ -326,6 +429,7 @@ export class Fleet {
           }
           this.pathLockers.delete(serial);
           this.activeOrders.delete(serial);
+          finish(this.cancelled.has(serial) ? "cancelled" : "failed", failureReason(error));
           this.emitOrders();
           reject(error);
         });

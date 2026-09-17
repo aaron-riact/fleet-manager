@@ -206,6 +206,18 @@ describe("Fleet dispatch with locks", () => {
       expect(first.nodes.map((n) => n.released)).toEqual([true, false]);
       const last = seen[seen.length - 1]!;
       expect(last).toEqual([]);
+      expect(fleet.activeOrderList()).toEqual([]);
+      const history = fleet.orderHistory();
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        serial: "ord-1",
+        outcome: "completed",
+      });
+      expect(typeof history[0]!.finishedAt).toBe("number");
+      const route = history[0]!.route.map((r) => r.nodeId);
+      expect(route.length).toBeGreaterThan(0);
+      expect(route.every((n) => ["x", "y"].includes(n))).toBe(true);
+      expect(route[route.length - 1]).toBe("y");
     } finally {
       await c.stop();
       await master.stop();
