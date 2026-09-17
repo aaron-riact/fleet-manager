@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_RETAINED_TASKS, pumpSiteTasks } from "../src/serve.js";
-import type { TaskPump, TaskView } from "../src/serve.js";
-import type { Site } from "@fleet-manager/core";
+import { MAX_RETAINED_TASKS, pumpSiteTasks } from "../src/tasks.js";
+import type { TaskPump, TaskView } from "../src/tasks.js";
+import type { Site } from "../src/site.js";
 
 const site: Site = {
   name: "tasks",
@@ -21,12 +21,6 @@ const pose = (serial: string, x: number, y: number, seenAt = Date.now()) => ({
   serialNumber: serial,
   x,
   y,
-  theta: 0,
-  driving: false,
-  charging: false,
-  positionInitialized: true,
-  eStop: false,
-  fieldViolation: false,
   seenAt,
 });
 
@@ -133,47 +127,44 @@ describe("pumpSiteTasks", () => {
     expect([...tasks.values()].filter((t) => t.status === "done")).toHaveLength(MAX_RETAINED_TASKS);
   });
 
-  test("a nested pump call does not walk the task map twice", () => {
-    // dispatch() emits onOrders synchronously in the real Fleet, which
-    // re-enters the pump mid-loop; the guard must make that a no-op
+  test("nested pump calls do not recurse once per queued task", () => {
+    // dispatch() emits onOrders synchronously, so each assignment calls
+    // the pump again from inside itself. With several free robots that
+    // nests once per task — 500 queued tasks would be 500 frames deep.
     const tasks = new Map<string, TaskView>();
-    const poses = new Map([["r1", pose("r1", 0, 0)]]);
+    const poses = new Map(
+      ["r1", "r2", "r3", "r4"].map((s, i) => [s, pose(s, i, 0)] as const),
+    );
+    const busy = new Set<string>();
     let depth = 0;
     let maxDepth = 0;
-    let dispatches = 0;
-    const busy = new Set<string>();
     const pump: TaskPump = {
       site,
       poses,
       tasks,
       poseTtlMs: 30_000,
       fleet: {
-        // the real Fleet marks the robot busy before emitting onOrders
         isBusy: (serial) => busy.has(serial),
         dispatch: async (agv) => {
-          dispatches += 1;
           busy.add(agv.serialNumber);
           depth += 1;
           maxDepth = Math.max(maxDepth, depth);
           pumpSiteTasks(pump); // what onOrders does
           depth -= 1;
-          return "order-1";
+          return `order-${agv.serialNumber}`;
         },
       },
     };
-    for (const id of ["t1", "t2"]) {
-      tasks.set(id, {
-        id,
-        pickup: "a",
-        dropoff: "c",
-        status: "queued",
-        createdAt: Date.now(),
-      });
+    for (const id of ["t1", "t2", "t3", "t4"]) {
+      tasks.set(id, { id, pickup: "a", dropoff: "c", status: "queued", createdAt: Date.now() });
     }
+
     pumpSiteTasks(pump);
+
+    // one walker, however many assignments it makes
     expect(maxDepth).toBe(1);
-    // one robot, so exactly one task went out — not one per re-entry
-    expect(dispatches).toBe(1);
-    expect([...tasks.values()].filter((t) => t.status === "queued")).toHaveLength(1);
+    // and every task still went out, one per robot
+    expect([...tasks.values()].every((t) => t.status === "assigned")).toBe(true);
+    expect(new Set([...tasks.values()].map((t) => t.assignee)).size).toBe(4);
   });
 });

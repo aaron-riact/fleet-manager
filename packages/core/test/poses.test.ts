@@ -1,18 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { freshPoses, isFresh } from "../src/serve.js";
-import type { TrackedPose } from "../src/serve.js";
+import { freshPoses, isFresh } from "../src/poses.js";
 
-const at = (serialNumber: string, seenAt: number): TrackedPose => ({
-  manufacturer: "m",
+const at = (serialNumber: string, seenAt: number) => ({
   serialNumber,
-  x: 0,
-  y: 0,
-  theta: 0,
-  driving: false,
-  charging: false,
-  positionInitialized: true,
-  eStop: false,
-  fieldViolation: false,
   seenAt,
 });
 

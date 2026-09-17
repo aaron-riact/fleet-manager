@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { robotStatus, statusColor, theme } from "./theme";
 import type { RobotStatus } from "./theme";
 import type { Backend, LivePose, OrderView } from "./backend";
+import { DEFAULT_POSE_TTL_MS, isFresh } from "@fleet-manager/core";
 import type { LockSnapshot } from "@fleet-manager/core";
 
 export interface RobotCardModel {
@@ -54,8 +55,12 @@ export function buildCards(
 
 export type FleetFilter = RobotStatus | "all";
 
-/** Poses older than this no longer describe where a robot is (mirrors the server TTL). */
-export const POSE_TTL_MS = 30_000;
+/**
+ * Poses older than this no longer describe where a robot is. Same
+ * constant the server defaults to — a server run with a custom
+ * poseTtlMs wants this raised to match.
+ */
+export const POSE_TTL_MS = DEFAULT_POSE_TTL_MS;
 
 /**
  * Drop robots silent longer than ttlMs. A stale fix is not a position —
@@ -69,7 +74,7 @@ export function pruneStalePoses(
 ): Record<string, LivePose> {
   const fresh: Record<string, LivePose> = {};
   for (const [serial, pose] of Object.entries(poses)) {
-    if (now - (seenAt[serial] ?? 0) < ttlMs) fresh[serial] = pose;
+    if (isFresh({ seenAt: seenAt[serial] ?? 0 }, now, ttlMs)) fresh[serial] = pose;
   }
   return fresh;
 }
