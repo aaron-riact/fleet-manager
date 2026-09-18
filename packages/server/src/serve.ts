@@ -175,7 +175,6 @@ export interface SiteContext extends SiteFleet {
   lockSubs: Set<(snapshot: LockSnapshot) => void>;
   orderSubs: Set<(orders: ActiveOrder[]) => void>;
   poseSubs: Set<(pose: RobotPose) => void>;
-  /** Last known pose per robot (drives parking without a tracker). */
   /** Latest pose per robot, with the time it arrived. See TrackedPose. */
   poses: Map<string, TrackedPose>;
 }
