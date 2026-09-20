@@ -54,38 +54,59 @@ export function FleetMap({
 
   // Tolerance discs (arrival radii) double as clutter on dense maps.
   const [showTolerance, setShowTolerance] = useState(true);
+  // Floor-plan imagery likewise: invaluable for orientation, in the way
+  // when tracing exact topology.
+  const [showUnderlay, setShowUnderlay] = useState(true);
 
   return (
     <div style={{ position: "relative" }}>
-    <button
-      onClick={() => setShowTolerance((v) => !v)}
-      aria-pressed={showTolerance}
-      title="Toggle node tolerance circles"
-      style={{
-        position: "absolute",
-        top: "0.5rem",
-        right: "0.5rem",
-        zIndex: 1,
-        width: "2rem",
-        height: "2rem",
-        borderRadius: "50%",
-        border: `1px solid ${showTolerance ? "#2f81f7" : "#232f45"}`,
-        background: "rgba(7, 11, 18, 0.7)",
-        color: showTolerance ? "#2f81f7" : "#8b98ad",
-        fontSize: "1rem",
-        lineHeight: 1,
-        cursor: "pointer",
-      }}
-    >
-      ◎
-    </button>
+    <div style={{ position: "absolute", top: "0.5rem", right: "0.5rem", zIndex: 1, display: "flex", gap: "0.4rem" }}>
+      <button
+        onClick={() => setShowTolerance((v) => !v)}
+        aria-pressed={showTolerance}
+        title="Toggle node tolerance circles"
+        style={{
+          width: "2rem",
+          height: "2rem",
+          borderRadius: "50%",
+          border: `1px solid ${showTolerance ? "#2f81f7" : "#232f45"}`,
+          background: "rgba(7, 11, 18, 0.7)",
+          color: showTolerance ? "#2f81f7" : "#8b98ad",
+          fontSize: "1rem",
+          lineHeight: 1,
+          cursor: "pointer",
+        }}
+      >
+        ◎
+      </button>
+      {site.underlay && (
+        <button
+          onClick={() => setShowUnderlay((v) => !v)}
+          aria-pressed={showUnderlay}
+          title="Toggle background image"
+          style={{
+            width: "2rem",
+            height: "2rem",
+            borderRadius: "50%",
+            border: `1px solid ${showUnderlay ? "#2f81f7" : "#232f45"}`,
+            background: "rgba(7, 11, 18, 0.7)",
+            color: showUnderlay ? "#2f81f7" : "#8b98ad",
+            fontSize: "1rem",
+            lineHeight: 1,
+            cursor: "pointer",
+          }}
+        >
+          ▦
+        </button>
+      )}
+    </div>
     <svg
       viewBox={viewBoxFor(bounds, 1.5)}
       role="img"
       aria-label={`Map of ${site.name}`}
       style={{ width: "100%", height: "auto", background: "#0b0e14", borderRadius: 12, display: "block" }}
     >
-      {site.underlay && underlay && (
+      {site.underlay && underlay && showUnderlay && (
         <image
           href={site.underlay.uri}
           x={underlay.x}
