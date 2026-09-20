@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { robotStatus, statusColor, theme } from "./theme";
+import { useToast } from "./Toast";
+import { useConfirm } from "./Confirm";
 import type { RobotStatus } from "./theme";
 import type { Backend, LivePose, OrderView } from "./backend";
 import { DEFAULT_POSE_TTL_MS, isFresh } from "@fleet-manager/core";
@@ -119,24 +121,36 @@ export function RobotCards({
   siteName?: string;
 }) {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const toast = useToast();
+  const { confirm } = useConfirm();
 
   async function act(serialNumber: string, action: "park" | "cancel") {
     if (!backend || !siteName) return;
+    const ok =
+      action === "park"
+        ? await confirm({
+            title: `Park ${serialNumber}?`,
+            body: "It drives off-graph and holds no locks.",
+            confirmLabel: "Park robot",
+          })
+        : await confirm({
+            title: `Cancel ${serialNumber}'s order?`,
+            body: "The robot stops and its locks release.",
+            confirmLabel: "Cancel order",
+            danger: true,
+          });
+    if (!ok) return;
     setBusy((prev) => ({ ...prev, [serialNumber]: true }));
-    setErrors((prev) => {
-      const next = { ...prev };
-      delete next[serialNumber];
-      return next;
-    });
     try {
-      if (action === "park") await backend.parkRobot(siteName, { serialNumber });
-      else await backend.cancelOrder(siteName, { serialNumber });
+      if (action === "park") {
+        const { spot } = await backend.parkRobot(siteName, { serialNumber });
+        toast.show({ kind: "ok", message: `${serialNumber} parking at ${spot}` });
+      } else {
+        await backend.cancelOrder(siteName, { serialNumber });
+        toast.show({ kind: "warn", message: `${serialNumber}'s order cancelled` });
+      }
     } catch (e) {
-      setErrors((prev) => ({
-        ...prev,
-        [serialNumber]: e instanceof Error ? e.message : `${action} failed`,
-      }));
+      toast.show({ kind: "bad", message: e instanceof Error ? e.message : `${action} failed` });
     } finally {
       setBusy((prev) => {
         const next = { ...prev };
@@ -227,11 +241,6 @@ export function RobotCards({
                   >
                     Cancel
                   </button>
-                )}
-                {errors[card.serialNumber] && (
-                  <span style={{ color: theme.bad, fontSize: "0.72rem", alignSelf: "center" }}>
-                    {errors[card.serialNumber]}
-                  </span>
                 )}
               </div>
             )}

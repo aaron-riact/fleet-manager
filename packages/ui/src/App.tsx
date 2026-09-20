@@ -11,6 +11,7 @@ import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { TaskBoard } from "./TaskBoard";
 import { ToastProvider, useToast } from "./Toast";
+import { ConfirmProvider } from "./Confirm";
 import { statusColor, theme } from "./theme";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
@@ -118,7 +119,9 @@ export interface ShellProps {
 export function Shell(props: ShellProps) {
   return (
     <ToastProvider>
-      <ShellView {...props} />
+      <ConfirmProvider>
+        <ShellView {...props} />
+      </ConfirmProvider>
     </ToastProvider>
   );
 }
