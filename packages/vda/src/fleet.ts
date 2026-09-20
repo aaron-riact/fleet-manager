@@ -32,7 +32,10 @@ export function buildIncrementalOrder(orderId: string, waypoints: FleetWaypoint[
       nodeId: w.nodeId,
       sequenceId,
       released: i === 0,
-      nodePosition: { mapId: "local", x: w.x, y: w.y, theta: 0 },
+      // No theta: the adapter adopts each node's heading on arrival, so a
+      // stamped theta would snap the robot to face it at every waypoint.
+      // Omitting it keeps the travel heading continuous through the tour.
+      nodePosition: { mapId: "local", x: w.x, y: w.y },
       actions: [],
     };
   });
@@ -304,7 +307,9 @@ export class Fleet {
         nodeId: w.nodeId,
         sequenceId: i * 2,
         released: true,
-        nodePosition: { mapId: "local", x: w.x, y: w.y, theta: 0 },
+        // No theta here either (see buildIncrementalOrder): the adapter
+        // keeps its heading instead of snapping east at each waypoint.
+        nodePosition: { mapId: "local", x: w.x, y: w.y },
         actions: [],
       })),
       edges: points.slice(1).map((w, i) => ({

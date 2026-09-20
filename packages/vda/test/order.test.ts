@@ -53,6 +53,16 @@ describe("order building", () => {
   test("empty waypoints rejected", () => {
     expect(() => buildIncrementalOrder("o", [])).toThrow(/at least one waypoint/);
   });
+
+  test("waypoints carry no heading", () => {
+    // The adapter adopts each node's theta on arrival; a stamped theta: 0
+    // snapped every robot to face east at every waypoint.
+    const { order } = buildIncrementalOrder("o1", waypoints);
+    for (const node of order.nodes) {
+      expect(node).not.toHaveProperty("theta");
+      expect(node.nodePosition).not.toHaveProperty("theta");
+    }
+  });
 });
 
 describe("order history", () => {
