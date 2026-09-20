@@ -1,5 +1,5 @@
 import { AgvController, MasterController, VirtualAgvAdapter } from "vda-5050-lib";
-import type { AgvId, ClientOptions } from "vda-5050-lib";
+import type { AgvAdapterConstructor, AgvId, ClientOptions, VirtualAgvAdapterOptions } from "vda-5050-lib";
 import { MemoryHub, attachMemoryTransport } from "@fleet-manager/vda";
 
 export interface DemoRobot {
@@ -41,6 +41,13 @@ const clientOptions = (interfaceName: string): ClientOptions => ({
 export async function bootFleet(input: {
   interfaceName?: string;
   robots?: SpawnSpec[];
+  /**
+   * Adapter class for the virtual robots (default VirtualAgvAdapter).
+   * Custom adapters (trolleys, doors, …) plug in here; extra constructor
+   * needs travel via adapterOptions.
+   */
+  adapterType?: AgvAdapterConstructor;
+  adapterOptions?: Partial<VirtualAgvAdapterOptions> & Record<string, unknown>;
 } = {}): Promise<DemoFleet> {
   const interfaceName = input.interfaceName ?? "demo";
   const specs = input.robots ?? [{ manufacturer: "RobotCompany", serialNumber: "demo-1" }];
@@ -59,10 +66,11 @@ export async function bootFleet(input: {
     const controller = new AgvController(
       id,
       clientOptions(interfaceName),
-      { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+      { agvAdapterType: input.adapterType ?? VirtualAgvAdapter, publishStateInterval: 250 },
       {
         vehicleSpeed: 3,
         initialPosition: { mapId: "local", x: spec.x ?? 0, y: spec.y ?? 0, theta: 0, lastNodeId: "0" },
+        ...input.adapterOptions,
       },
     );
     attachMemoryTransport(controller, hub);
