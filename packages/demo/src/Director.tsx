@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchConnections, watchRobots } from "@fleet-manager/vda";
-import { freeSpot, nextTaskId, occupiedSpots, pumpSiteTasks, shortestPath } from "@fleet-manager/core";
+import { addDemand, consumeDemand, demandList, freeSpot, nextTaskId, occupiedSpots, pumpSiteTasks, shortestPath } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
@@ -13,7 +13,7 @@ import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
 import siteData from "../../../data/seed/sites/coalescent.json";
 import { buildLocks } from "@fleet-manager/core";
-import type { LockSnapshot, Site, TaskView } from "@fleet-manager/core";
+import type { DemandCounts, LockSnapshot, Site, TaskView } from "@fleet-manager/core";
 import { POSE_TTL_MS } from "@fleet-manager/ui";
 
 declare const __BUILD_ID__: string;
@@ -35,6 +35,7 @@ export default function Director() {
   const posesRef = useRef<Record<string, RobotPose>>({});
   const seenRef = useRef<Record<string, number>>({});
   const tasksRef = useRef(new Map<string, TaskView>());
+  const demandsRef = useRef<DemandCounts>({});
   const parkedRef = useRef<Record<string, string>>({});
   function pumpDemoTasks() {
     const svc = svcRef.current;
@@ -50,7 +51,7 @@ export default function Director() {
         },
       ]),
     );
-    pumpSiteTasks({ site: site as Site, fleet: svc, poses, tasks: tasksRef.current, demands: {}, poseTtlMs: POSE_TTL_MS });
+    pumpSiteTasks({ site: site as Site, fleet: svc, poses, tasks: tasksRef.current, demands: demandsRef.current, poseTtlMs: POSE_TTL_MS });
   }
   const [backend] = useState<MemoryBackend>(() =>
     createMemoryBackend(site as Site, {
@@ -124,8 +125,64 @@ export default function Director() {
       withdrawTask: async (_site, taskId) => {
         const task = tasksRef.current.get(taskId);
         if (!task) throw new Error("unknown task");
+        if (task.status === "requested") {
+          if (task.zone !== undefined) {
+            demandsRef.current = addDemand(demandsRef.current, task.zone, 1);
+            backend.emitDemands(demandList(demandsRef.current));
+          }
+          tasksRef.current.delete(taskId);
+          return;
+        }
         if (task.status !== "queued") throw new Error("only queued tasks can be withdrawn");
         tasksRef.current.delete(taskId);
+      },
+      submitRequest: async (_site, input) => {
+        const svc = svcRef.current;
+        if (!svc) throw new Error("fleet not booted yet");
+        const demoSite = site as Site;
+        if (!demoSite.nodes.some((n) => n.id === input.dropoff)) {
+          throw new Error("dropoff must be a known node");
+        }
+        if (input.zone !== undefined && !input.zone) {
+          throw new Error("zone must be a non-empty string");
+        }
+        const id = nextTaskId();
+        tasksRef.current.set(id, {
+          id,
+          dropoff: input.dropoff,
+          ...(input.zone === undefined ? {} : { zone: input.zone }),
+          status: "requested",
+          createdAt: Date.now(),
+        });
+        if (input.zone !== undefined) {
+          demandsRef.current = consumeDemand(demandsRef.current, input.zone);
+          backend.emitDemands(demandList(demandsRef.current));
+        }
+        return { taskId: id };
+      },
+      attachPickup: async (_site, taskId, input) => {
+        const task = tasksRef.current.get(taskId);
+        if (!task) throw new Error("unknown task");
+        if (task.status !== "requested") throw new Error("only requested tasks take a pickup");
+        const demoSite = site as Site;
+        if (!demoSite.nodes.some((n) => n.id === input.pickup)) {
+          throw new Error("pickup must be a known node");
+        }
+        if (!shortestPath(demoSite, input.pickup, task.dropoff)) {
+          throw new Error(`no route from "${input.pickup}" to "${task.dropoff}"`);
+        }
+        task.pickup = input.pickup;
+        task.status = "queued";
+        pumpDemoTasks();
+      },
+      bumpDemand: async (_site, input) => {
+        if (!input.zone) throw new Error("zone required");
+        if (!Number.isInteger(input.count) || input.count < 0) {
+          throw new Error("count must be a non-negative integer");
+        }
+        demandsRef.current = addDemand(demandsRef.current, input.zone, input.count);
+        backend.emitDemands(demandList(demandsRef.current));
+        return { zone: input.zone, demand: demandsRef.current[input.zone]! };
       },
       parkRobots: async (_site, input) => {
         const svc = svcRef.current;

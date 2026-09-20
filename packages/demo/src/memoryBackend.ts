@@ -6,8 +6,8 @@ import type {
   LivePose,
   OrderView,
 } from "@fleet-manager/ui";
-import type { TaskView } from "@fleet-manager/core";
-import type { LockSnapshot, Site } from "@fleet-manager/core";
+import type { TaskView, ZoneDemand } from "@fleet-manager/core";
+import type { DemandCounts, LockSnapshot, Site } from "@fleet-manager/core";
 
 export interface MemoryBackend extends Backend {
   emitPose(pose: LivePose): void;
@@ -15,6 +15,7 @@ export interface MemoryBackend extends Backend {
   emitOrders(orders: OrderView[]): void;
   emitHistory(history: HistoryView[]): void;
   emitConnections(conns: ConnectionView[]): void;
+  emitDemands(demands: ZoneDemand[]): void;
 }
 
 export interface MemoryBackendActions {
@@ -31,6 +32,9 @@ export interface MemoryBackendActions {
     parked: Array<{ serialNumber: string; spot: string }>;
     failed: Array<{ serialNumber: string; error: string }>;
   }>;
+  submitRequest?(site: string, input: { dropoff: string; zone?: string }): Promise<{ taskId: string }>;
+  attachPickup?(site: string, taskId: string, input: { pickup: string }): Promise<void>;
+  bumpDemand?(site: string, input: { zone: string; count: number }): Promise<{ zone: string; demand: number }>;
 }
 
 /**
@@ -43,6 +47,7 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
   const orderListeners = new Set<(orders: OrderView[]) => void>();
   const historyListeners = new Set<(history: HistoryView[]) => void>();
   const connListeners = new Set<(conns: ConnectionView[]) => void>();
+  const demandListeners = new Set<(demands: ZoneDemand[]) => void>();
 
   const subscribe = <T>(set: Set<(value: T) => void>, listener: (value: T) => void) => {
     set.add(listener);
@@ -64,6 +69,7 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     watchOrders: (_site, onOrders) => subscribe(orderListeners, onOrders),
     watchHistory: (_site, onHistory) => subscribe(historyListeners, onHistory),
     watchConnections: (_site, onConns) => subscribe(connListeners, onConns),
+    watchDemands: (_site, onDemands) => subscribe(demandListeners, onDemands),
     dispatchOrder: async (site, input) => {
       if (!actions.dispatchOrder) throw new Error(`no dispatcher for site "${site}"`);
       await actions.dispatchOrder(site, input);
@@ -92,10 +98,23 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
       if (!actions.parkRobots) throw new Error(`no dispatcher for site "${site}"`);
       return actions.parkRobots(site, input);
     },
+    submitRequest: async (site, input) => {
+      if (!actions.submitRequest) throw new Error(`no dispatcher for site "${site}"`);
+      return actions.submitRequest(site, input);
+    },
+    attachPickup: async (site, taskId, input) => {
+      if (!actions.attachPickup) throw new Error(`no dispatcher for site "${site}"`);
+      await actions.attachPickup(site, taskId, input);
+    },
+    bumpDemand: async (site, input) => {
+      if (!actions.bumpDemand) throw new Error(`no dispatcher for site "${site}"`);
+      return actions.bumpDemand(site, input);
+    },
     emitPose: emit(poseListeners),
     emitLocks: emit(lockListeners),
     emitOrders: emit(orderListeners),
     emitHistory: emit(historyListeners),
     emitConnections: emit(connListeners),
+    emitDemands: emit(demandListeners),
   };
 }

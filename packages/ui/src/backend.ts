@@ -1,6 +1,6 @@
 import { treaty } from "@elysiajs/eden";
 import type { FleetApi } from "@fleet-manager/server";
-import type { LockSnapshot, Site, TaskView } from "@fleet-manager/core";
+import type { LockSnapshot, Site, TaskView, ZoneDemand } from "@fleet-manager/core";
 import { errorMessage, fetchMap, fetchSites } from "./api.js";
 import type { FetchFn } from "./api.js";
 
@@ -111,13 +111,21 @@ export interface Backend {
   listTasks(site: string): Promise<TaskView[]>;
   /** Withdraw a queued task. Rejects once it is assigned. */
   withdrawTask(site: string, taskId: string): Promise<void>;
+  /** Queue a dropoff-only request; the pickup attaches later. */
+  submitRequest(site: string, input: { dropoff: string; zone?: string }): Promise<{ taskId: string }>;
+  /** Attach the pickup that makes a request dispatchable. */
+  attachPickup(site: string, taskId: string, input: { pickup: string }): Promise<void>;
+  /** Live zone demand counts. */
+  watchDemands(site: string, onDemands: (demands: ZoneDemand[]) => void): Unsubscribe;
+  /** Signal unit demand for a zone (+n) or reset it (0). */
+  bumpDemand(site: string, input: { zone: string; count: number }): Promise<{ zone: string; demand: number }>;
 }
 
 function watchStream<T>(
   baseUrl: string,
   token: string,
   site: string,
-  stream: "poses" | "locks" | "orders" | "history" | "connections",
+  stream: "poses" | "locks" | "orders" | "history" | "connections" | "demands",
   onEvent: (data: T) => void,
   openEventSource?: EventSourceFactory,
 ): Unsubscribe {
@@ -219,6 +227,36 @@ export function createHttpBackend(
         );
       }
       return res.data.tasks as TaskView[];
+    },
+    submitRequest: async (site, input) => {
+      ensureOnline();
+      const res = await treatyApi(fetchFn).api.sites({ name: site }).tasks.request.post(input);
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+      return { taskId: res.data.taskId };
+    },
+    attachPickup: async (site, taskId, input) => {
+      ensureOnline();
+      const res = await treatyApi(fetchFn).api.sites({ name: site }).tasks({ taskId }).pickup.post(input);
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+    },
+    watchDemands: (site, onDemands) => watchStream(baseUrl, token, site, "demands", onDemands, openEventSource),
+    bumpDemand: async (site, input) => {
+      ensureOnline();
+      const res = await treatyApi(fetchFn).api.sites({ name: site }).demand.post(input);
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+      return { zone: res.data.zone, demand: res.data.demand };
     },
     withdrawTask: async (site, taskId) => {
       ensureOnline();

@@ -127,6 +127,51 @@ describe("createHttpBackend tasks", () => {
     ]);
   });
 
+  test("requests, pickups, demand bumps, and the demands stream", async () => {
+    const seen: Array<[string, string, unknown]> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      seen.push([method, url, body]);
+      if (url.endsWith("/tasks/request")) {
+        return new Response(JSON.stringify({ ok: true, taskId: "task-9" }), { status: 200 });
+      }
+      if (url.endsWith("/pickup")) {
+        return new Response(JSON.stringify({ ok: true, taskId: "task-9" }), { status: 200 });
+      }
+      if (url.endsWith("/demand")) {
+        return new Response(JSON.stringify({ ok: true, zone: "dock", demand: 3 }), { status: 200 });
+      }
+      throw new Error(`unexpected call: ${method} ${url}`);
+    }) as unknown as FetchFn;
+    const backend = createHttpBackend("http://x", "t", fetchFn);
+    await expect(backend.submitRequest("coalescent", { dropoff: "b", zone: "dock" })).resolves.toEqual({
+      taskId: "task-9",
+    });
+    await expect(backend.attachPickup("coalescent", "task-9", { pickup: "a" })).resolves.toBeUndefined();
+    await expect(backend.bumpDemand("coalescent", { zone: "dock", count: 3 })).resolves.toEqual({
+      zone: "dock",
+      demand: 3,
+    });
+    expect(seen).toEqual([
+      ["POST", "http://x/api/sites/coalescent/tasks/request", { dropoff: "b", zone: "dock" }],
+      ["POST", "http://x/api/sites/coalescent/tasks/task-9/pickup", { pickup: "a" }],
+      ["POST", "http://x/api/sites/coalescent/demand", { zone: "dock", count: 3 }],
+    ]);
+  });
+
+  test("demands stream opens the tokenized URL and parses frames", () => {
+    const opened: string[] = [];
+    const backend = createHttpBackend("http://x", "t", undefined, (url: string) => {
+      opened.push(url);
+      return { onmessage: null, onerror: null, close: () => {} } as never;
+    });
+    const seen: unknown[] = [];
+    const stop = backend.watchDemands("coalescent", (d) => void seen.push(d));
+    expect(opened).toEqual(["http://x/api/sites/coalescent/demands/stream?token=t"]);
+    stop();
+  });
+
   test("task errors surface", async () => {
     const fetchFn = (async () =>
       new Response(JSON.stringify({ error: "no route" }), { status: 409 })) as unknown as FetchFn;

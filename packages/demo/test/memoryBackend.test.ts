@@ -80,6 +80,52 @@ describe("createMemoryBackend", () => {
     await expect(bare.dispatchOrder("demo", input)).rejects.toThrow(/no dispatcher/);
   });
 
+  test("requests, pickups, and demand bumps delegate to actions, or fail clearly", async () => {
+    const calls: unknown[] = [];
+    const backend = createMemoryBackend(site, {
+      submitRequest: async (name, input) => {
+        calls.push(["submitRequest", name, input]);
+        return { taskId: "task-9" };
+      },
+      attachPickup: async (name, taskId, input) => {
+        calls.push(["attachPickup", name, taskId, input]);
+      },
+      bumpDemand: async (name, input) => {
+        calls.push(["bumpDemand", name, input]);
+        return { zone: input.zone, demand: 3 };
+      },
+    });
+    await expect(backend.submitRequest("demo", { dropoff: "b", zone: "dock" })).resolves.toEqual({
+      taskId: "task-9",
+    });
+    await expect(backend.attachPickup("demo", "task-9", { pickup: "a" })).resolves.toBeUndefined();
+    await expect(backend.bumpDemand("demo", { zone: "dock", count: 3 })).resolves.toEqual({
+      zone: "dock",
+      demand: 3,
+    });
+    expect(calls).toEqual([
+      ["submitRequest", "demo", { dropoff: "b", zone: "dock" }],
+      ["attachPickup", "demo", "task-9", { pickup: "a" }],
+      ["bumpDemand", "demo", { zone: "dock", count: 3 }],
+    ]);
+
+    const bare = createMemoryBackend(site);
+    await expect(bare.submitRequest("demo", { dropoff: "b" })).rejects.toThrow(/no dispatcher/);
+    await expect(bare.attachPickup("demo", "task-9", { pickup: "a" })).rejects.toThrow(/no dispatcher/);
+    await expect(bare.bumpDemand("demo", { zone: "dock", count: 1 })).rejects.toThrow(/no dispatcher/);
+  });
+
+  test("demands fan out to subscribers", () => {
+    const backend = createMemoryBackend(site);
+    const seen: unknown[] = [];
+    const stop = backend.watchDemands("demo", (d) => void seen.push(d));
+    backend.emitDemands([{ zone: "dock", demand: 2 }]);
+    expect(seen).toEqual([[{ zone: "dock", demand: 2 }]]);
+    stop();
+    backend.emitDemands([]);
+    expect(seen).toHaveLength(1);
+  });
+
   test("bulk park delegates to actions, or fails clearly", async () => {
     const calls: unknown[] = [];
     const result = {
