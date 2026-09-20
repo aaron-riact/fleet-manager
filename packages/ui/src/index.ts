@@ -23,5 +23,5 @@ export { robotStatus, statusColor, theme } from "./theme.js";
 export type { RobotSnapshot, RobotStatus } from "./theme.js";
 export { createHttpBackend } from "./backend.js";
 export type { Backend, ConnectionView, DispatchInput, DispatchWaypoint, EventSourceFactory, HistoryView, LivePose, OrderView, Unsubscribe } from "./backend.js";
-export { boundsOf, groupByZone, indexNodes, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map.js";
+export { boundsOf, gridLines, gridSpacing, groupByZone, indexNodes, scaleBarLength, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map.js";
 export type { Bounds } from "./map.js";

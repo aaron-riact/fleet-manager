@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   boundsOf,
+  gridLines,
+  gridSpacing,
   groupByZone,
   headingVector,
   indexNodes,
+  scaleBarLength,
   stationPoses,
   toSvg,
   underlayRect,
@@ -28,6 +31,26 @@ describe("map projection", () => {
 
   test("node index", () => {
     expect(indexNodes(nodes).get("b")).toEqual({ id: "b", x: 10, y: 8 });
+  });
+
+  test("grid lines snap to spacing and cover the bounds", () => {
+    expect(gridLines({ minX: 0, minY: 0, maxX: 10, maxY: 8 }, 5)).toEqual({
+      vertical: [0, 5, 10],
+      horizontal: [0, 5],
+    });
+    expect(gridLines({ minX: 1, minY: 1, maxX: 9, maxY: 9 }, 5)).toEqual({
+      vertical: [5],
+      horizontal: [5],
+    });
+  });
+
+  test("grid spacing and scale bars use nice numbers", () => {
+    expect(gridSpacing(60)).toBe(5);
+    expect(gridSpacing(12)).toBe(1);
+    expect(gridSpacing(200)).toBe(20);
+    expect(scaleBarLength(60)).toBe(10);
+    expect(scaleBarLength(12)).toBe(2);
+    expect(scaleBarLength(3)).toBe(0.5);
   });
 
   test("heading vectors point along world headings in SVG space", () => {

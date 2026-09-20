@@ -71,6 +71,37 @@ export function viewBoxFor(bounds: Bounds, pad = 1): string {
   return `${-pad} ${-pad} ${w + pad * 2} ${h + pad * 2}`;
 }
 
+const NICE_STEPS = [1, 2, 5, 10] as const;
+
+/** Nice-number grid spacing (~12 cells across). Pure, tested. */
+export function gridSpacing(widthMeters: number): number {
+  const target = Math.max(widthMeters / 12, 0.5);
+  const pow = 10 ** Math.floor(Math.log10(target));
+  for (const m of NICE_STEPS) if (m * pow >= target) return m * pow;
+  return 10 * pow;
+}
+
+/** World-coordinate grid lines snapped to spacing multiples. Pure, tested. */
+export function gridLines(bounds: Bounds, spacing: number): { vertical: number[]; horizontal: number[] } {
+  const vertical: number[] = [];
+  for (let x = Math.ceil(bounds.minX / spacing) * spacing; x <= bounds.maxX + 1e-9; x += spacing) {
+    vertical.push(Math.round(x * 1e9) / 1e9);
+  }
+  const horizontal: number[] = [];
+  for (let y = Math.ceil(bounds.minY / spacing) * spacing; y <= bounds.maxY + 1e-9; y += spacing) {
+    horizontal.push(Math.round(y * 1e9) / 1e9);
+  }
+  return { vertical, horizontal };
+}
+
+/** Nice-number scale bar length, at most a fifth of the view. Pure, tested. */
+export function scaleBarLength(widthMeters: number): number {
+  const target = widthMeters / 5;
+  const pow = 10 ** Math.floor(Math.log10(target));
+  for (const m of [5, 2, 1] as const) if (m * pow <= target) return m * pow;
+  return pow;
+}
+
 /** Index nodes by id for link resolution. */
 export function indexNodes(nodes: MapNode[]): Map<string, MapNode> {
   return new Map(nodes.map((n) => [n.id, n]));

@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import type { LockSnapshot, ParkingSpot, Site } from "@fleet-manager/core";
-import { boundsOf, groupByZone, headingVector, indexNodes, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map";
+import { boundsOf, gridLines, gridSpacing, groupByZone, headingVector, indexNodes, scaleBarLength, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map";
 
 export interface RobotDot {
   serialNumber: string;
@@ -38,6 +38,12 @@ export function FleetMap({
     () => (site.underlay ? underlayRect(site.underlay, bounds) : undefined),
     [site, bounds],
   );
+  const grid = useMemo(() => {
+    const w = Math.max(bounds.maxX - bounds.minX, 1);
+    const h = Math.max(bounds.maxY - bounds.minY, 1);
+    const spacing = gridSpacing(w);
+    return { w, h, spacing, ...gridLines(bounds, spacing), bar: scaleBarLength(w) };
+  }, [bounds]);
   const byId = useMemo(() => indexNodes(site.nodes), [site]);
   const nodeState = useMemo(() => new Map((locks?.nodeLocks ?? []).map((n) => [n.id, n])), [locks]);
   const edgeHeld = useMemo(() => {
@@ -64,6 +70,42 @@ export function FleetMap({
           preserveAspectRatio="none"
         />
       )}
+      <g id="grid" stroke="#232f45" strokeWidth={0.03} opacity={0.9}>
+        {grid.vertical.map((x) => {
+          const a = toSvg(x, bounds.minY, bounds);
+          const b = toSvg(x, bounds.maxY, bounds);
+          return <line key={`gv${x}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+        })}
+        {grid.horizontal.map((y) => {
+          const a = toSvg(bounds.minX, y, bounds);
+          const b = toSvg(bounds.maxX, y, bounds);
+          return <line key={`gh${y}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />;
+        })}
+      </g>
+      <g
+        id="scalebar"
+        stroke="#8b98ad"
+        strokeWidth={0.05}
+        fontSize={0.32}
+        fill="#8b98ad"
+      >
+        <line x1={0.35} y1={grid.h - 0.35} x2={0.35 + grid.bar} y2={grid.h - 0.35} />
+        <line x1={0.35} y1={grid.h - 0.47} x2={0.35} y2={grid.h - 0.23} />
+        <line x1={0.35 + grid.bar} y1={grid.h - 0.47} x2={0.35 + grid.bar} y2={grid.h - 0.23} />
+        <text x={0.35 + grid.bar / 2} y={grid.h - 0.55} textAnchor="middle" stroke="none">
+          {grid.bar} m
+        </text>
+        {/* North is +Y by the site convention (meters, y-up plans). */}
+        <line x1={grid.w - 0.35} y1={1.3} x2={grid.w - 0.35} y2={0.6} />
+        <polygon
+          points={`${grid.w - 0.35},0.35 ${grid.w - 0.53},0.75 ${grid.w - 0.17},0.75`}
+          stroke="none"
+          fill="#8b98ad"
+        />
+        <text x={grid.w - 0.35} y={1.65} textAnchor="middle" stroke="none">
+          N
+        </text>
+      </g>
       <g id="graph-edges" strokeWidth={0.08}>
         {site.links.map((link, i) => {
           const from = byId.get(link.source);
