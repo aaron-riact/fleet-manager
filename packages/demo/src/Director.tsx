@@ -11,6 +11,7 @@ import type { ActiveOrder } from "@fleet-manager/vda";
 import { App, hashFor, parseHash } from "@fleet-manager/ui";
 import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
+import { selectAutoParkTarget } from "./autoPark";
 import { SITES, selectInitialSite } from "./sites";
 import { buildLocks } from "@fleet-manager/core";
 import type { DemandCounts, LockSnapshot, Site, TaskView } from "@fleet-manager/core";
@@ -73,6 +74,10 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
   const tasksRef = useRef(new Map<string, TaskView>());
   const demandsRef = useRef<DemandCounts>({});
   const parkedRef = useRef<Record<string, string>>({});
+  // Spot ids already targeted by in-flight auto-parks. Park resolves on
+  // arrival, so without this two completions could aim two robots at the
+  // same spot.
+  const parkingTargetsRef = useRef(new Map<string, string>());
   function pumpDemoTasks() {
     const svc = svcRef.current;
     if (!svc) return;
@@ -305,6 +310,53 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         ...(spots[1] ? { [spots[1].id]: `${siteName}-2` } : {}),
       });
       fleetRef.current = fleet;
+      const autoParkAfterTour = (serial: string) => {
+        const svc = svcRef.current;
+        const liveFleet = fleetRef.current;
+        if (cancelled || !svc || !liveFleet) return;
+        const robot = liveFleet.robots.find((r) => r.id.serialNumber === serial);
+        const pose = posesRef.current[serial];
+        if (!robot || !pose) return;
+        const spot = selectAutoParkTarget({
+          spots: (site as Site).parking ?? [],
+          pose: {
+            manufacturer: pose.manufacturer,
+            x: pose.x,
+            y: pose.y,
+            seenAt: seenRef.current[serial] ?? 0,
+          },
+          serialNumber: serial,
+          now: Date.now(),
+          poseTtlMs: POSE_TTL_MS,
+          isBusy: (s) => svc.isBusy(s),
+          targetedSpotIds: new Set(parkingTargetsRef.current.values()),
+          allPoses: Object.values(posesRef.current).map((p) => ({
+            x: p.x,
+            y: p.y,
+            seenAt: seenRef.current[p.serialNumber] ?? 0,
+          })),
+        });
+        if (!spot) return;
+        // Claim the target before driving: spawn and driveLoop both read
+        // parkedRef, so an unclaimed target could be double-booked.
+        parkingTargetsRef.current.set(serial, spot.id);
+        setParked((prev) => ({ ...prev, [spot.id]: serial }));
+        svc
+          .park(robot.id, spot, { from: pose })
+          .catch((error: unknown) => {
+            console.warn("auto-park failed", error);
+            // Release the reservation we took above, or the spot leaks.
+            setParked((prev) => {
+              if (prev[spot.id] !== serial) return prev;
+              const next = { ...prev };
+              delete next[spot.id];
+              return next;
+            });
+          })
+          .finally(() => {
+            parkingTargetsRef.current.delete(serial);
+          });
+      };
       const svc = new Fleet(fleet.master, locksModel, {
         onLocks: (snap) => {
           if (cancelled) return;
@@ -327,6 +379,14 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         onHistory: (history) => {
           if (cancelled) return;
           backend.emitHistory(history);
+        },
+        // Finished generic tours clear the graph into parking, like the
+        // server: driveLoop tours already park as part of their own order
+        // (and are skipped as already-parked), so this only catches tours
+        // from dispatch, tasks, and the order composer.
+        onOrderDone: (serial) => {
+          if (cancelled) return;
+          autoParkAfterTour(serial);
         },
       });
       svcRef.current = svc;
