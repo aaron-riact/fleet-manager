@@ -130,10 +130,10 @@ export function FleetMap({
       </g>
       <g
         id="scalebar"
-        stroke="#8b98ad"
+        stroke={showUnderlay && underlay ? "#3b4657" : "#8b98ad"}
         strokeWidth={0.05}
         fontSize={0.32}
-        fill="#8b98ad"
+        fill={showUnderlay && underlay ? "#3b4657" : "#8b98ad"}
       >
         <line x1={0.35} y1={grid.h - 0.35} x2={0.35 + grid.bar} y2={grid.h - 0.35} />
         <line x1={0.35} y1={grid.h - 0.47} x2={0.35} y2={grid.h - 0.23} />
@@ -146,7 +146,6 @@ export function FleetMap({
         <polygon
           points={`${grid.w - 0.35},0.35 ${grid.w - 0.53},0.75 ${grid.w - 0.17},0.75`}
           stroke="none"
-          fill="#8b98ad"
         />
         <text x={grid.w - 0.35} y={1.65} textAnchor="middle" stroke="none">
           N
@@ -220,7 +219,7 @@ export function FleetMap({
                   strokeDasharray={contested ? "0.15 0.1" : undefined}
                 />
               )}
-              <circle cx={p.x} cy={p.y} r={0.07} fill={dot} />
+              <circle cx={p.x} cy={p.y} r={0.07} fill={dot} stroke="#0b0e14" strokeWidth={0.03} />
             </g>
           );
         })}
@@ -239,9 +238,20 @@ export function FleetMap({
                   y1={p.y.toFixed(3)}
                   x2={e.x.toFixed(3)}
                   y2={e.y.toFixed(3)}
+                  stroke="#0b0e14"
+                  strokeWidth={0.1}
+                  opacity={0.7}
+                />
+              )}
+              {e && (
+                <line
+                  x1={p.x.toFixed(3)}
+                  y1={p.y.toFixed(3)}
+                  x2={e.x.toFixed(3)}
+                  y2={e.y.toFixed(3)}
                   stroke="#e6edf3"
-                  strokeWidth={0.05}
-                  opacity={0.8}
+                  strokeWidth={0.04}
+                  opacity={0.7}
                 />
               )}
               <rect
@@ -377,9 +387,32 @@ export function FleetMap({
                   cy={p.y}
                   r={0.45}
                   fill="none"
+                  stroke="#0b0e14"
+                  strokeWidth={0.11}
+                  strokeDasharray="0.12 0.1"
+                  opacity={0.9}
+                />
+              )}
+              {r.laden && (
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={0.45}
+                  fill="none"
                   stroke="#e6edf3"
                   strokeWidth={0.05}
                   strokeDasharray="0.12 0.1"
+                  opacity={0.9}
+                />
+              )}
+              {tick && (
+                <line
+                  x1={p.x}
+                  y1={p.y}
+                  x2={(p.x + tick.dx * tickLen).toFixed(3)}
+                  y2={(p.y + tick.dy * tickLen).toFixed(3)}
+                  stroke="#0b0e14"
+                  strokeWidth={0.12}
                   opacity={0.9}
                 />
               )}
@@ -394,7 +427,16 @@ export function FleetMap({
                   opacity={0.9}
                 />
               )}
-              <text x={p.x} y={p.y + 0.75} textAnchor="middle" fontSize={0.3} fill="#e6edf3">
+              <text
+                x={p.x}
+                y={p.y + 0.75}
+                textAnchor="middle"
+                fontSize={0.3}
+                fill="#e6edf3"
+                stroke="#0b0e14"
+                strokeWidth={0.06}
+                style={{ paintOrder: "stroke" }}
+              >
                 {r.serialNumber}
               </text>
             </g>
