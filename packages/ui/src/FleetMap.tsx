@@ -200,17 +200,22 @@ export function FleetMap({
           edge.legs
             .filter((leg) => leg.owners.length > 0)
             .map((leg) => {
-              const origin = byId.get(leg.from);
-              const otherId = leg.from === edge.fromId ? edge.toId : edge.fromId;
-              const other = byId.get(otherId);
-              if (!origin || !other) return null;
-              const a = toSvg(origin.x, origin.y, bounds);
-              const b = toSvg(other.x, other.y, bounds);
+              const fromNode = byId.get(edge.fromId);
+              const toNode = byId.get(edge.toId);
+              if (!fromNode || !toNode) return null;
+              // Canonical frame (fromId→toId) for the lane: endpoints must
+              // NOT swap per leg, or the side flip cancels out and opposing
+              // arrows collapse onto one lane tip-to-tip. Only the heading
+              // follows the leg's travel direction.
+              const forward = leg.from === edge.fromId;
+              const a = toSvg(fromNode.x, fromNode.y, bounds);
+              const b = toSvg(toNode.x, toNode.y, bounds);
               // Own lane per direction: opposing arrows sit side by side
               // instead of collapsing tip-to-tip into one blob.
-              const side = (leg.from === edge.fromId ? 1 : -1) as 1 | -1;
+              const side = (forward ? 1 : -1) as 1 | -1;
               const { mx, my } = laneShift(a.x, a.y, b.x, b.y, side);
-              const ang = Math.atan2(b.y - a.y, b.x - a.x);
+              const base = Math.atan2(b.y - a.y, b.x - a.x);
+              const ang = forward ? base : base + Math.PI;
               const s = 0.28;
               const tip = `${(mx + Math.cos(ang) * s).toFixed(3)},${(my + Math.sin(ang) * s).toFixed(3)}`;
               const l = `${(mx + Math.cos(ang + 2.5) * s).toFixed(3)},${(my + Math.sin(ang + 2.5) * s).toFixed(3)}`;
