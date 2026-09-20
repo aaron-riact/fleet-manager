@@ -95,6 +95,56 @@ describe("createHttpBackend tasks", () => {
   });
 });
 
+describe("createHttpBackend auth", () => {
+  test("sends the Bearer token on every endpoint", async () => {
+    const seen: Array<[string, string | null]> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      const raw = init?.headers as Record<string, string> | Headers | undefined;
+      const auth = raw instanceof Headers
+        ? raw.get("authorization")
+        : (raw?.["authorization"] ?? raw?.["Authorization"] ?? null);
+      seen.push([`${init?.method ?? "GET"} ${url}`, auth]);
+      if (url.endsWith("/api/sites"))
+        return new Response(JSON.stringify({ sites: ["coalescent"] }), { status: 200 });
+      if (url.endsWith("/map"))
+        return new Response(
+          JSON.stringify({ name: "coalescent", nodes: [], links: [] }),
+          { status: 200 },
+        );
+      if (url.endsWith("/tasks") && (init?.method ?? "GET") === "GET")
+        return new Response(JSON.stringify({ tasks: [] }), { status: 200 });
+      if (url.endsWith("/tasks"))
+        return new Response(JSON.stringify({ ok: true, taskId: "task-1" }), { status: 200 });
+      if (url.endsWith("/park"))
+        return new Response(JSON.stringify({ ok: true, spot: "p1" }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as FetchFn;
+    const backend = createHttpBackend("http://x", "t", fetchFn);
+    await backend.listSites();
+    await backend.getMap("coalescent");
+    await backend.dispatchOrder("coalescent", {
+      serialNumber: "r1",
+      waypoints: [{ nodeId: "a", x: 0, y: 0 }],
+    });
+    await backend.parkRobot("coalescent", { serialNumber: "r1" });
+    await backend.cancelOrder("coalescent", { serialNumber: "r1" });
+    await backend.submitTask("coalescent", { pickup: "a", dropoff: "b" });
+    await backend.listTasks("coalescent");
+    await backend.withdrawTask("coalescent", "task-1");
+    expect(seen.map(([route]) => route)).toEqual([
+      "GET http://x/api/sites",
+      "GET http://x/api/sites/coalescent/map",
+      "POST http://x/api/sites/coalescent/orders",
+      "POST http://x/api/sites/coalescent/park",
+      "POST http://x/api/sites/coalescent/orders/cancel",
+      "POST http://x/api/sites/coalescent/tasks",
+      "GET http://x/api/sites/coalescent/tasks",
+      "DELETE http://x/api/sites/coalescent/tasks/task-1",
+    ]);
+    for (const [route, auth] of seen) expect({ route, auth }).toEqual({ route, auth: "Bearer t" });
+  });
+});
+
 describe("createHttpBackend", () => {
   test("delegates to sites + map endpoints", async () => {
     const backend = createHttpBackend(

@@ -125,7 +125,11 @@ export function createHttpBackend(
   fetchFn: FetchFn = fetch,
   openEventSource?: EventSourceFactory,
 ): Backend {
-  const treatyApi = (fetch: FetchFn) => treaty<FleetApi>(baseUrl, { fetcher: fetch as typeof fetch });
+  const treatyApi = (fetch: FetchFn) =>
+    treaty<FleetApi>(baseUrl, {
+      fetcher: fetch as typeof fetch,
+      headers: { authorization: `Bearer ${token}` },
+    });
   return {
     listSites: () => fetchSites(baseUrl, token, fetchFn),
     getMap: (site: string) => fetchMap(baseUrl, token, site, fetchFn),
