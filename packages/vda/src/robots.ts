@@ -20,6 +20,19 @@ export interface RobotPose {
   fieldViolation: boolean;
   /** True while the AGV reports any load on board (generic laden flag). */
   laden: boolean;
+  /**
+   * Live action states, newest report wins. Generic pass-through — the
+   * watcher never interprets actionTypes; labels resolve in the UI.
+   */
+  actions: RobotAction[];
+}
+
+/** One reported action state (order or instant scope). */
+export interface RobotAction {
+  actionId: string;
+  actionType: string;
+  /** VDA status name, e.g. INITIALIZING, RUNNING, FINISHED, FAILED. */
+  actionStatus: string;
 }
 
 interface TopicAccess {
@@ -34,6 +47,7 @@ interface TopicAccess {
       batteryState?: { charging?: boolean; batteryCharge?: number; batteryVoltage?: number };
       safetyState?: { eStop?: string; fieldViolation?: boolean };
       loads?: unknown[];
+      actionStates?: Array<{ actionId?: unknown; actionType?: unknown; actionStatus?: unknown }>;
     }) => void,
   ): Promise<string>;
 }
@@ -150,6 +164,15 @@ export async function watchRobots(
       eStop: object.safetyState?.eStop !== undefined && object.safetyState.eStop !== "NONE",
       fieldViolation: object.safetyState?.fieldViolation ?? false,
       laden: Array.isArray(object.loads) && object.loads.length > 0,
+      actions: Array.isArray(object.actionStates)
+        ? object.actionStates.flatMap((a) =>
+            typeof a.actionId === "string" &&
+            typeof a.actionType === "string" &&
+            typeof a.actionStatus === "string"
+              ? [{ actionId: a.actionId, actionType: a.actionType, actionStatus: a.actionStatus }]
+              : [],
+          )
+        : [],
     });
   });
   void id;

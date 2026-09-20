@@ -10,6 +10,21 @@ export interface RobotDot {
   theta?: number;
   /** Carrying a load; drawn as a dashed ring around the dot. */
   laden?: boolean;
+  /** Resolved display label of the running action ("PICK…"), if any. */
+  actionLabel?: string;
+}
+
+/**
+ * Host-owned point annotations (trolleys, pallets, doors): the map draws
+ * them, the host owns what they mean. Squares so they never read as robots.
+ */
+export interface MapMarker {
+  id: string;
+  x: number;
+  y: number;
+  label?: string;
+  /** Fill for the square; defaults to amber. */
+  color?: string;
 }
 
 export interface OrderWait {
@@ -25,6 +40,7 @@ export function FleetMap({
   locks,
   parking = [],
   waits = [],
+  markers = [],
 }: {
   site: Site;
   robots?: RobotDot[];
@@ -32,6 +48,8 @@ export function FleetMap({
   parking?: ParkingSpot[];
   /** Robots waiting, each with the node from its own order it waits on. */
   waits?: OrderWait[];
+  /** Host-owned annotations; drawn as labelled squares. */
+  markers?: MapMarker[];
 }) {
   const bounds = useMemo(() => boundsOf(site), [site]);
   const underlay = useMemo(
@@ -439,6 +457,55 @@ export function FleetMap({
               >
                 {r.serialNumber}
               </text>
+              {r.actionLabel && (
+                <text
+                  x={p.x}
+                  y={p.y + 1.1}
+                  textAnchor="middle"
+                  fontSize={0.28}
+                  fill="#f0b429"
+                  stroke="#0b0e14"
+                  strokeWidth={0.06}
+                  style={{ paintOrder: "stroke" }}
+                >
+                  {r.actionLabel}…
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </g>
+      <g id="markers">
+        {markers.map((m) => {
+          if (!Number.isFinite(m.x) || !Number.isFinite(m.y)) return null;
+          const p = toSvg(m.x, m.y, bounds);
+          const color = m.color ?? "#f0b429";
+          return (
+            <g key={m.id} id={`marker-${m.id}`}>
+              <rect
+                x={(p.x - 0.25).toFixed(3)}
+                y={(p.y - 0.25).toFixed(3)}
+                width={0.5}
+                height={0.5}
+                fill={color}
+                fillOpacity={0.25}
+                stroke={color}
+                strokeWidth={0.06}
+              />
+              {m.label && (
+                <text
+                  x={p.x}
+                  y={p.y + 0.6}
+                  textAnchor="middle"
+                  fontSize={0.26}
+                  fill={color}
+                  stroke="#0b0e14"
+                  strokeWidth={0.06}
+                  style={{ paintOrder: "stroke" }}
+                >
+                  {m.label}
+                </text>
+              )}
             </g>
           );
         })}

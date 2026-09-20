@@ -1,6 +1,7 @@
 // Shared, server-independent UI pieces (reused by the ops app and the demo).
 export { FleetMap } from "./FleetMap.js";
-export type { RobotDot } from "./FleetMap.js";
+export type { MapMarker, RobotDot } from "./FleetMap.js";
+export { defaultActionLabel, runningAction } from "./actions.js";
 export { default as App, Shell } from "./App.js";
 export { POSE_TTL_MS, RobotCards, buildCards, filterCards, pruneStalePoses, summarizeCards } from "./RobotCards.js";
 export type { FleetFilter, RobotCardModel } from "./RobotCards.js";
@@ -24,6 +25,6 @@ export { OfflineBanner, useOnline } from "./online.js";
 export { robotStatus, statusColor, theme } from "./theme.js";
 export type { RobotSnapshot, RobotStatus } from "./theme.js";
 export { createHttpBackend } from "./backend.js";
-export type { Backend, ConnectionView, DispatchInput, DispatchWaypoint, EventSourceFactory, HistoryView, LivePose, OrderView, Unsubscribe } from "./backend.js";
+export type { Backend, ConnectionView, DispatchInput, DispatchWaypoint, EventSourceFactory, HistoryView, LiveAction, LivePose, OrderView, Unsubscribe } from "./backend.js";
 export { boundsOf, gridLines, gridSpacing, groupByZone, headingVector, indexNodes, laneShift, scaleBarLength, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map.js";
 export type { Bounds } from "./map.js";

@@ -4,6 +4,8 @@ import { clearSession, loadSession, saveSession } from "./session";
 import { createHttpBackend } from "./backend";
 import type { Backend } from "./backend";
 import { FleetMap } from "./FleetMap";
+import type { MapMarker } from "./FleetMap";
+import { defaultActionLabel, runningAction } from "./actions";
 import { OrderComposer } from "./OrderComposer";
 import { RobotCards, StatusStrip, buildCards, filterCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
@@ -123,6 +125,13 @@ export interface ShellProps {
   initialSite?: string | null;
   /** Called alongside the internal switch so hosts can persist it (hash). */
   onSiteChange?: (site: string) => void;
+  /** Host-owned map annotations (trolleys, pallets); drawn, never interpreted. */
+  markers?: MapMarker[];
+  /**
+   * Domain display names for action types. Injected by the host — the
+   * shells only ever render the returned string.
+   */
+  resolveActionLabel?: (actionType: string) => string;
 }
 
 export function Shell(props: ShellProps) {
@@ -135,7 +144,16 @@ export function Shell(props: ShellProps) {
   );
 }
 
-function ShellView({ session, backend, onLogout, extraPanel, initialSite, onSiteChange }: ShellProps) {
+function ShellView({
+  session,
+  backend,
+  onLogout,
+  extraPanel,
+  initialSite,
+  onSiteChange,
+  markers,
+  resolveActionLabel = defaultActionLabel,
+}: ShellProps) {
   const toast = useToast();
   const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
     useFleetSite(backend, initialSite);
@@ -295,13 +313,18 @@ function ShellView({ session, backend, onLogout, extraPanel, initialSite, onSite
                   const next = o.nodes.find((n) => !n.released);
                   return next ? [{ serialNumber: o.serial, nodeId: next.nodeId }] : [];
                 })}
-                robots={Object.values(poses).map((p) => ({
-                  serialNumber: p.serialNumber,
-                  x: p.x,
-                  y: p.y,
-                  theta: p.theta,
-                  laden: p.laden,
-                }))}
+                markers={markers}
+                robots={Object.values(poses).map((p) => {
+                  const action = runningAction(p.actions);
+                  return {
+                    serialNumber: p.serialNumber,
+                    x: p.x,
+                    y: p.y,
+                    theta: p.theta,
+                    laden: p.laden,
+                    ...(action ? { actionLabel: resolveActionLabel(action.actionType) } : {}),
+                  };
+                })}
               />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -332,7 +355,12 @@ function ShellView({ session, backend, onLogout, extraPanel, initialSite, onSite
                   )}
                 </div>
                 <StatusStrip cards={cards} value={fleetFilter} onChange={setFleetFilter} />
-                <RobotCards cards={visibleCards} backend={backend} siteName={site?.name} />
+                <RobotCards
+                  cards={visibleCards}
+                  backend={backend}
+                  siteName={site?.name}
+                  resolveActionLabel={resolveActionLabel}
+                />
               </section>
               <TaskHistory history={history} />
               {(site.locations ?? []).length > 0 && (
@@ -358,6 +386,8 @@ export default function App({
   sessionOverride,
   extraPanel,
   initialSite,
+  markers,
+  resolveActionLabel,
 }: {
   createBackend?: (session: LoginSession) => Backend;
   /** Demo bypass: skip the login form entirely. */
@@ -365,6 +395,8 @@ export default function App({
   extraPanel?: React.ReactNode;
   /** Pinned initial site (deep links); the stored selection wins afterwards. */
   initialSite?: string | null;
+  markers?: MapMarker[];
+  resolveActionLabel?: (actionType: string) => string;
 } = {}) {
   const [session, setSession] = useState<LoginSession | null>(() => loadSession());
   const effective = sessionOverride ?? session;
@@ -423,6 +455,8 @@ export default function App({
             }
             initialSite={effectiveSite}
             onSiteChange={changeSite}
+            markers={markers}
+            resolveActionLabel={resolveActionLabel}
           />
         ) : (
           <Shell
@@ -432,6 +466,8 @@ export default function App({
             extraPanel={extraPanel}
             initialSite={effectiveSite}
             onSiteChange={changeSite}
+            markers={markers}
+            resolveActionLabel={resolveActionLabel}
           />
         )
       ) : (

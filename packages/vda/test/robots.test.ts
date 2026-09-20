@@ -170,6 +170,49 @@ describe("watchRobots", () => {
     expect(seen.map((p) => p.laden)).toEqual([true, false, false]);
   });
 
+  test("action states project generically, malformed entries dropped", async () => {
+    const stub = {
+      subscribeTopic: async (_t: unknown, _s: unknown, handler: (o: unknown) => void) => {
+        handler({
+          serialNumber: "act-1",
+          actionStates: [
+            { actionId: "a1", actionType: "pickTrolley", actionStatus: "RUNNING" },
+            { actionId: "a2", actionType: "cancelOrder", actionStatus: "FINISHED" },
+            { actionId: 7, actionType: "bogus", actionStatus: "RUNNING" },
+            "not-an-action",
+          ],
+        });
+        return "sub-a";
+      },
+      unsubscribe: async () => {},
+    };
+    const seen: RobotPose[] = [];
+    const stop = await watchRobots(stub as unknown as MasterController, undefined, (p) =>
+      void seen.push(p),
+    );
+    stop();
+    expect(seen[0]!.actions).toEqual([
+      { actionId: "a1", actionType: "pickTrolley", actionStatus: "RUNNING" },
+      { actionId: "a2", actionType: "cancelOrder", actionStatus: "FINISHED" },
+    ]);
+  });
+
+  test("missing action states project as no actions", async () => {
+    const stub = {
+      subscribeTopic: async (_t: unknown, _s: unknown, handler: (o: unknown) => void) => {
+        handler({ serialNumber: "act-2" });
+        return "sub-a";
+      },
+      unsubscribe: async () => {},
+    };
+    const seen: RobotPose[] = [];
+    const stop = await watchRobots(stub as unknown as MasterController, undefined, (p) =>
+      void seen.push(p),
+    );
+    stop();
+    expect(seen[0]!.actions).toEqual([]);
+  });
+
   test("wildcard manufacturer sees every maker", async () => {
     const hub = new MemoryHub();
     const master = new MasterController(options, {});

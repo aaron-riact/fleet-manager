@@ -5,6 +5,7 @@ import { useConfirm } from "./Confirm";
 import { touchStyle, useNarrow } from "./responsive";
 import type { RobotStatus } from "./theme";
 import type { Backend, LivePose, OrderView } from "./backend";
+import { defaultActionLabel, runningAction } from "./actions";
 import { DEFAULT_POSE_TTL_MS, isFresh } from "@fleet-manager/core";
 import type { LockSnapshot } from "@fleet-manager/core";
 
@@ -169,10 +170,17 @@ export function RobotCards({
   cards,
   backend,
   siteName,
+  resolveActionLabel = defaultActionLabel,
 }: {
   cards: RobotCardModel[];
   backend?: Backend;
   siteName?: string;
+  /**
+   * Domain display names for action types ("pickTrolley" → "PICK").
+   * Injected by the host; the fallback humanizes. The actions themselves
+   * stay generic end to end — only this label is domain-flavored.
+   */
+  resolveActionLabel?: (actionType: string) => string;
 }) {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const toast = useToast();
@@ -254,6 +262,10 @@ export function RobotCards({
                   : `${card.pose.x.toFixed(1)}, ${card.pose.y.toFixed(1)}`}
               {card.pose?.charging ? " · charging" : ""}
               {card.pose?.laden ? " · laden" : ""}
+              {(() => {
+                const action = runningAction(card.pose?.actions);
+                return action ? ` · ${resolveActionLabel(action.actionType)}…` : "";
+              })()}
               {card.pose?.batteryCharge !== undefined ? ` · ${Math.round(card.pose.batteryCharge)}%` : ""}
               {card.pose?.eStop ? " · e-stop" : ""}
               {card.holding.length > 0 ? ` · holds ${card.holding.join(", ")}` : ""}

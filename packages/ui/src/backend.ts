@@ -4,6 +4,13 @@ import type { LockSnapshot, Site, TaskView, ZoneDemand } from "@fleet-manager/co
 import { errorMessage, fetchMap, fetchSites } from "./api.js";
 import type { FetchFn } from "./api.js";
 
+/** One reported action state; mirrors the AGV's actionStates generically. */
+export interface LiveAction {
+  actionId: string;
+  actionType: string;
+  actionStatus: string;
+}
+
 export interface LivePose {
   manufacturer: string;
   serialNumber: string;
@@ -19,6 +26,8 @@ export interface LivePose {
   positionInitialized: boolean;
   eStop: boolean;
   fieldViolation: boolean;
+  /** Live action states; absent on older backends means no actions. */
+  actions?: LiveAction[];
 }
 
 export interface OrderView {

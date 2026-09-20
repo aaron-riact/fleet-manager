@@ -5,6 +5,8 @@ import { ConfirmProvider } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
 import { OfflineBanner } from "./online";
 import { FleetMap } from "./FleetMap";
+import type { MapMarker } from "./FleetMap";
+import { defaultActionLabel, runningAction } from "./actions";
 import { OrderComposer } from "./OrderComposer";
 import { RobotCards, StatusStrip, buildCards, filterCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
@@ -27,6 +29,8 @@ export interface MobileShellProps {
   initialSite?: string | null;
   /** Called alongside the internal switch so hosts can persist it (hash). */
   onSiteChange?: (site: string) => void;
+  markers?: MapMarker[];
+  resolveActionLabel?: (actionType: string) => string;
 }
 
 const page: React.CSSProperties = {
@@ -47,7 +51,18 @@ const glass: React.CSSProperties = {
   backdropFilter: "blur(10px)",
 };
 
-function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange, initialSite, onSiteChange }: MobileShellProps) {
+function MobileView({
+  session,
+  backend,
+  onLogout,
+  extraPanel,
+  tab,
+  onTabChange,
+  initialSite,
+  onSiteChange,
+  markers,
+  resolveActionLabel = defaultActionLabel,
+}: MobileShellProps) {
   const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
     useFleetSite(backend, initialSite);
   const changeSite = (name: string) => {
@@ -137,13 +152,18 @@ function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange, 
                 const next = o.nodes.find((n) => !n.released);
                 return next ? [{ serialNumber: o.serial, nodeId: next.nodeId }] : [];
               })}
-              robots={Object.values(poses).map((p) => ({
-                serialNumber: p.serialNumber,
-                x: p.x,
-                y: p.y,
-                theta: p.theta,
-                laden: p.laden,
-              }))}
+              markers={markers}
+              robots={Object.values(poses).map((p) => {
+                const action = runningAction(p.actions);
+                return {
+                  serialNumber: p.serialNumber,
+                  x: p.x,
+                  y: p.y,
+                  theta: p.theta,
+                  laden: p.laden,
+                  ...(action ? { actionLabel: resolveActionLabel(action.actionType) } : {}),
+                };
+              })}
             />
             {(site.locations ?? []).length > 0 && (
               <div style={{ marginTop: "0.75rem" }}>
@@ -172,7 +192,12 @@ function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange, 
               Robots · {fleetFilter === "all" ? cards.length : `${visibleCards.length} of ${cards.length}`}
             </h2>
             <StatusStrip cards={cards} value={fleetFilter} onChange={setFleetFilter} />
-            <RobotCards cards={visibleCards} backend={backend} siteName={site.name} />
+            <RobotCards
+              cards={visibleCards}
+              backend={backend}
+              siteName={site.name}
+              resolveActionLabel={resolveActionLabel}
+            />
           </section>
         )}
         {site && tab === "tools" && extraPanel}

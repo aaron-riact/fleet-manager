@@ -13,4 +13,4 @@ export type {
 export { bootSiteFleet } from "./siteFleet.js";
 export type { SiteFleet, SiteFleetTransport } from "./siteFleet.js";
 export { watchConnections, watchRobots, watchStates } from "./robots.js";
-export type { RawState, RobotConnection, RobotPose } from "./robots.js";
+export type { RawState, RobotAction, RobotConnection, RobotPose } from "./robots.js";
