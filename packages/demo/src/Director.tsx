@@ -14,7 +14,7 @@ import type { MemoryBackend } from "./memoryBackend";
 import { defaultActionLabel } from "@fleet-manager/ui";
 import type { MapMarker } from "@fleet-manager/ui";
 import { selectAutoParkTarget } from "./autoPark";
-import { TrolleyAdapter, normAngle } from "./trolley/adapter";
+import { TrolleyAdapter } from "./trolley/adapter";
 import { dropAttachments, pickAttachments, stationDock, stationEntry } from "./trolley/attachments";
 import { DEFAULT_TROLLEY_SEED, TrolleyWorld } from "./trolley/world";
 import { SITES, selectInitialSite } from "./sites";
@@ -378,13 +378,13 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         siteName === "coalescent" ? ["serena-1", "serena-2"] : [`${siteName}-1`, `${siteName}-2`];
       // Sparse initial layout (see DEFAULT_TROLLEY_SEED); the component
       // remounts per site, so each site gets a fresh world. Trolleys are
-      // plain trolley-N; seeded perpendicular to the dock facing so the
-      // long side faces the triangle.
+      // plain trolley-N, oriented along the dock facing straight from the
+      // station pose — no derived offsets.
       const world = new TrolleyWorld();
       const demoSite = site as Site;
       (DEFAULT_TROLLEY_SEED[siteName] ?? []).forEach((station, i) => {
         const dock = stationDock(demoSite, station, "pickup") ?? stationDock(demoSite, station, "dropoff");
-        world.seed(station, `trolley-${i + 1}`, normAngle((dock?.theta ?? 0) + Math.PI / 2));
+        world.seed(station, `trolley-${i + 1}`, dock?.theta ?? 0);
       });
       worldRef.current = world;
       const fleet = await bootFleet({
