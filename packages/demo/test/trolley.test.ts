@@ -21,8 +21,9 @@ const site: Site = {
     { source: "b", destination: "c", bidirectional: true },
   ],
   locations: [
-    { id: "bay", entry: "b", pickPose: { x: 5, y: 0 }, dropPose: { x: 5, y: 0 } },
-    { id: "depot", entry: "a", pickPose: { x: -1, y: 0 }, dropPose: { x: -1, y: 0, theta: Math.PI } },
+    { id: "bay", entry: "b", pickPose: { x: 5, y: 0 }, dropPose: { x: 5, y: -1 } },
+    { id: "depot", entry: "a", pickPose: { x: -1, y: 0 }, dropPose: { x: -1, y: -1, theta: -Math.PI / 2 } },
+    { id: "solo", entry: "c", pickPose: { x: 6, y: 0 } },
   ],
 } as Site;
 
@@ -54,29 +55,33 @@ describe("trolley world", () => {
 });
 
 describe("stationDock", () => {
-  test("projects the stance along its facing", () => {
-    // depot dropPose (-1, 0, theta π) faces west: trolley waits at (-2, 0).
-    const dock = stationDock(site, "depot", "dropoff")!;
-    expect(dock.station).toBe("depot");
-    expect(dock.x).toBeCloseTo(-2, 9);
+  test("slot sits on the pick→drop segment, angled along it", () => {
+    // bay: pick (5, 0) to drop (5, -1) runs due south.
+    const dock = stationDock(site, "bay")!;
+    expect(dock.station).toBe("bay");
+    expect(dock.x).toBeCloseTo(5, 9);
+    expect(dock.y).toBeCloseTo(-0.5, 9);
+    expect(dock.theta).toBeCloseTo(-Math.PI / 2, 9);
+  });
+
+  test("single-pose stations fall back to facing-projected", () => {
+    // solo pick (6, 0) off entry c (8, 0) faces west: dock at (5, 0).
+    const dock = stationDock(site, "solo")!;
+    expect(dock.station).toBe("solo");
+    expect(dock.x).toBeCloseTo(5, 9);
     expect(dock.y).toBeCloseTo(0, 9);
     expect(dock.theta).toBe(Math.PI);
   });
 
-  test("poses without theta face away from the entry node", () => {
-    // bay pickPose (5, 0) off entry b (4, 0): faces east, dock at (6, 0).
-    expect(stationDock(site, "bay", "pickup")).toMatchObject({ station: "bay", x: 6, y: 0, theta: 0 });
-  });
-
-  test("unknown station or missing pose yields no dock", () => {
-    expect(stationDock(site, "ghost", "pickup")).toBeUndefined();
+  test("unknown station yields no dock", () => {
+    expect(stationDock(site, "ghost")).toBeUndefined();
   });
 });
 
 describe("trolley pick and drop", () => {
   test("pick drives under the trolley; drop sets it down and exits clear", async () => {
     const world = new TrolleyWorld();
-    world.seed("bay", "trolley-1");
+    world.seed("bay", "trolley-1", -Math.PI / 2);
     const fleet = await bootFleet({
       robots: [{ manufacturer: maker, serialNumber: "t1", x: 0, y: 0 }],
       adapterType: TrolleyAdapter,
@@ -103,10 +108,10 @@ describe("trolley pick and drop", () => {
         ],
       );
 
-      // The maneuver drove off the node to the dock: stance (5, 0)
-      // projected 1m along its facing (entry-ward fallback theta 0).
+      // The maneuver left the node for the slot on the pick→drop
+      // segment: bay pick (5, 0) to drop (5, -1) slots at (5, -0.5).
       const positions = seen.map((s) => s.agvPosition).filter((p) => p !== undefined);
-      expect(Math.max(...positions.map((p) => p!.x))).toBeGreaterThan(5.5);
+      expect(Math.min(...positions.map((p) => p!.y!))).toBeLessThan(-0.4);
       // …and the tour drove on to c from the dock.
       const pickEnd = positions[positions.length - 1]!;
       expect(pickEnd.x).toBeCloseTo(8, 0);
@@ -137,16 +142,17 @@ describe("trolley pick and drop", () => {
 
       expect(world.trolleyAt("depot")).toBe("trolley-1");
       expect(world.carrierOf("trolley-1")).toBeUndefined();
-      // Parked perpendicular to the stance facing.
+      // Parked along the depot pick→drop segment (due south).
       expect(world.trolleyPose("depot")?.theta).toBeCloseTo(-Math.PI / 2, 5);
       const after = seen.slice(seen.indexOf(last) + 1);
       const dropPositions = after.map((s) => s.agvPosition).filter((p) => p !== undefined);
-      // Dock is stance (-1, 0) projected along theta π to (-2, 0); faced
-      // back toward the triangle and exited 1m onto the stance, facing 0.
-      expect(Math.min(...dropPositions.map((p) => p!.x))).toBeLessThan(-1.9);
+      // Slot on the depot segment at (-1, -0.5); faced back toward the
+      // drop stance and exited onto it, facing south.
+      expect(Math.min(...dropPositions.map((p) => p!.y!))).toBeLessThan(-0.9);
       const dropEnd = dropPositions[dropPositions.length - 1]!;
       expect(dropEnd.x).toBeCloseTo(-1, 0);
-      expect(dropEnd.theta).toBeCloseTo(0, 1);
+      expect(dropEnd.y).toBeCloseTo(-1, 0);
+      expect(dropEnd.theta).toBeCloseTo(-Math.PI / 2, 1);
       const dropStatuses = after.flatMap((s) => (s.actionStates ?? []).map((a) => `${a.actionType}:${a.actionStatus}`));
       expect(dropStatuses).toContain("dropTrolley:FINISHED");
       expect(seen[seen.length - 1]!.loads ?? []).toEqual([]);

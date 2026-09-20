@@ -181,10 +181,11 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
         station: (v) => str(v) !== undefined,
         stanceX: (v) => num(v) !== undefined,
         stanceY: (v) => num(v) !== undefined,
-        stanceTheta: (v) => num(v) !== undefined,
         dockX: (v) => num(v) !== undefined,
         dockY: (v) => num(v) !== undefined,
         dockTheta: (v) => num(v) !== undefined,
+        trolleyTheta: (v) => num(v) !== undefined,
+        exitDist: (v) => num(v) !== undefined && (v as number) >= 0,
         duration: (v) => v === undefined || num(v) !== undefined,
       },
       actionExecutable: (action) => {
@@ -274,23 +275,22 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
       legs.push({ kind: "drive", x: dockX, y: dockY });
       if (trolleyTheta !== undefined) legs.push({ kind: "turn", to: trolleyTheta });
     } else {
-      // To the slot, release, face back toward the triangle, exit 1m that
-      // way — landing on the stance, so the route drives on with no
-      // return trip. The trolley stays perpendicular, long side to the
-      // triangle.
+      // To the slot, release, face back toward the drop stance and exit
+      // onto it — the route drives on with no return trip. The trolley
+      // keeps the segment angle from the action params.
       const dockTheta = num(p["dockTheta"])!;
-      const back = normAngle(stanceTheta + Math.PI);
-      // Parked perpendicular to the dock facing so the pick/drop visibly
-      // turns 90 degrees onto the trolley angle (and off it on release).
+      const exitDist = num(p["exitDist"]) ?? 0;
+      const back = Math.atan2(stanceY - dockY, stanceX - dockX);
       const station = str(p["station"]);
-      if (station !== undefined) this.dropThetas.set(station, normAngle(stanceTheta + Math.PI / 2));
+      const trolleyTheta = num(p["trolleyTheta"]);
+      if (station !== undefined && trolleyTheta !== undefined) this.dropThetas.set(station, trolleyTheta);
       legs.push({ kind: "turn", to: dockTheta });
       legs.push({ kind: "drive", x: dockX, y: dockY });
       legs.push({ kind: "turn", to: back });
       legs.push({
         kind: "drive",
-        x: dockX + Math.cos(back) * 1,
-        y: dockY + Math.sin(back) * 1,
+        x: dockX + Math.cos(back) * exitDist,
+        y: dockY + Math.sin(back) * exitDist,
       });
     }
     this.startDriving(0, 0, true);

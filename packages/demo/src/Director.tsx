@@ -14,7 +14,7 @@ import type { MemoryBackend } from "./memoryBackend";
 import { defaultActionLabel } from "@fleet-manager/ui";
 import type { MapMarker } from "@fleet-manager/ui";
 import { selectAutoParkTarget } from "./autoPark";
-import { TrolleyAdapter, normAngle } from "./trolley/adapter";
+import { TrolleyAdapter } from "./trolley/adapter";
 import { dropAttachments, pickAttachments, stationDock, stationEntry } from "./trolley/attachments";
 import { DEFAULT_TROLLEY_SEED, TrolleyWorld } from "./trolley/world";
 import { SITES, selectInitialSite } from "./sites";
@@ -347,10 +347,7 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
     const out: MapMarker[] = [];
     for (const station of world.stations()) {
       const trolley = world.trolleyAt(station);
-      // Pick stance owns the marker; a station with only a dropPose shows
-      // the trolley at its drop dock instead.
-      const dock =
-        stationDock(site as Site, station, "pickup") ?? stationDock(site as Site, station, "dropoff");
+      const dock = stationDock(site as Site, station);
       if (!trolley || !dock) continue;
       out.push({ id: `trolley-${trolley}`, x: dock.x, y: dock.y, label: trolley, theta: dock.theta });
     }
@@ -392,8 +389,8 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
       const world = new TrolleyWorld();
       const demoSite = site as Site;
       (DEFAULT_TROLLEY_SEED[siteName] ?? []).forEach((station, i) => {
-        const dock = stationDock(demoSite, station, "pickup") ?? stationDock(demoSite, station, "dropoff");
-        world.seed(station, `trolley-${i + 1}`, normAngle((dock?.theta ?? 0) + Math.PI / 2));
+        const dock = stationDock(demoSite, station);
+        world.seed(station, `trolley-${i + 1}`, dock?.theta ?? 0);
       });
       worldRef.current = world;
       const fleet = await bootFleet({

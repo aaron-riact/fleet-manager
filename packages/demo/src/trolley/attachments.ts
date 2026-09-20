@@ -10,10 +10,10 @@ import {
 
 export interface StationDock {
   station: string;
-  /** Trolley slot: stance pose projected along its facing. */
+  /** Trolley slot: midpoint of the pick→drop segment, angled along it. */
   x: number;
   y: number;
-  /** Facing the robot holds while docked. */
+  /** Segment angle: pick-stance to drop-stance. The robot docks along it. */
   theta: number;
 }
 
@@ -47,22 +47,35 @@ function stanceFor(site: Site, stationId: string, role: "pickup" | "dropoff"): S
 }
 
 /**
- * Where a station's trolley waits: the stance projected ahead along its
- * facing. Shared by the maneuver (dock params) and the map markers so the
- * robot drives to the rectangle it sees.
+ * Where a station's trolley waits: the midpoint of the pick→drop segment,
+ * angled along it. The pick arrow aims down the segment and the drop
+ * diamond marks its far end, so the slot is documented by the station
+ * geometry itself — no derived offsets. Shared by the maneuver (dock
+ * params) and the map markers so the robot drives to the rectangle it
+ * sees. Single-pose stations fall back to facing-projected (there is no
+ * segment to read).
  */
-export function stationDock(
-  site: Site,
-  stationId: string,
-  role: "pickup" | "dropoff",
-): StationDock | undefined {
-  const stance = stanceFor(site, stationId, role);
-  if (!stance) return undefined;
+export function stationDock(site: Site, stationId: string): StationDock | undefined {
+  const pick = stanceFor(site, stationId, "pickup");
+  const drop = stanceFor(site, stationId, "dropoff");
+  if (!pick && !drop) return undefined;
+  const a = pick ?? drop!;
+  const b = drop ?? pick!;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (dx === 0 && dy === 0) {
+    return {
+      station: a.station,
+      x: a.x + Math.cos(a.theta) * TROLLEY_AHEAD_M,
+      y: a.y + Math.sin(a.theta) * TROLLEY_AHEAD_M,
+      theta: a.theta,
+    };
+  }
   return {
-    station: stance.station,
-    x: stance.x + Math.cos(stance.theta) * TROLLEY_AHEAD_M,
-    y: stance.y + Math.sin(stance.theta) * TROLLEY_AHEAD_M,
-    theta: stance.theta,
+    station: a.station,
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    theta: Math.atan2(dy, dx),
   };
 }
 
@@ -88,7 +101,7 @@ export function pickAttachments(site: Site, nodeId: string): NodeActionAttachmen
   const node = site.nodes.find((n) => n.id === nodeId);
   if (!node) return [];
   return stationsAt(site, nodeId, "pickup")
-    .map((stance) => ({ stance, dock: stationDock(site, stance.station, "pickup")! }))
+    .map((stance) => ({ stance, dock: stationDock(site, stance.station)! }))
     .map(({ stance, dock }) => {
       // Drive to the triangle, face its pointing, drive to the trolley,
       // match its angle — worst case two half-turns plus the drive.
@@ -116,13 +129,15 @@ export function dropAttachments(site: Site, nodeId: string): NodeActionAttachmen
   const node = site.nodes.find((n) => n.id === nodeId);
   if (!node) return [];
   return stationsAt(site, nodeId, "dropoff")
-    .map((stance) => ({ stance, dock: stationDock(site, stance.station, "dropoff")! }))
+    .map((stance) => ({ stance, dock: stationDock(site, stance.station)! }))
     .map(({ stance, dock }) => {
-      // Drive to the slot, face the triangle, exit 1m toward it.
+      // Drive to the slot, release, face back toward the drop stance and
+      // exit onto it — the route drives on with no return trip.
+      const exitDist = Math.hypot(stance.x - dock.x, stance.y - dock.y);
       const duration =
         Math.hypot(dock.x - node.x, dock.y - node.y) / TROLLEY_DRIVE_MPS +
         2 * FULL_TURN_S +
-        1 / TROLLEY_DRIVE_MPS +
+        exitDist / TROLLEY_DRIVE_MPS +
         TROLLEY_DURATION_MARGIN_S;
       return {
         actionType: DROP_TROLLEY,
@@ -130,10 +145,11 @@ export function dropAttachments(site: Site, nodeId: string): NodeActionAttachmen
           { key: "station", value: stance.station },
           { key: "stanceX", value: stance.x },
           { key: "stanceY", value: stance.y },
-          { key: "stanceTheta", value: stance.theta },
           { key: "dockX", value: dock.x },
           { key: "dockY", value: dock.y },
           { key: "dockTheta", value: dock.theta },
+          { key: "trolleyTheta", value: dock.theta },
+          { key: "exitDist", value: exitDist },
           { key: "duration", value: duration },
         ],
         blockingType: "HARD",
