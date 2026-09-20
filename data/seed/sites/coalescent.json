@@ -592,7 +592,7 @@
     }
   ],
   "underlay": {
-    "uri": "maps/cmr-2.png",
+    "uri": "maps/cmr-2.webp",
     "minX": -8.05,
     "minY": -6.65,
     "maxX": 14.1,
