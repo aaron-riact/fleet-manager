@@ -4,6 +4,7 @@ import type { ActiveOrder, OrderHistory, RobotConnection, RobotPose, SiteFleet }
 import {
   DEFAULT_POSE_TTL_MS,
   addDemand,
+  consumeDemand,
   demandList,
   freeSpot,
   freshPoses,
@@ -614,6 +615,72 @@ export function buildApp(
       pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, poseTtlMs });
       return { ok: true, taskId: id };
     })
+    .post("/api/sites/:name/tasks/request", async ({ headers, params, body }) => {
+      // Dropoff-only request: demand that is not yet dispatchable. The
+      // pickup gets attached later; the pump ignores requested tasks.
+      // Consumes one unit of the zone's demand when given, so demand plus
+      // requests plus in-flight work keep summing to total demand.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const input = (body ?? {}) as { dropoff?: unknown; zone?: unknown };
+      if (typeof input.dropoff !== "string" || !input.dropoff) {
+        throw Object.assign(new Error("dropoff required"), { status: 400 });
+      }
+      if (!ctx.site.nodes.some((n) => n.id === input.dropoff)) {
+        throw Object.assign(new Error("dropoff must be a known node"), { status: 400 });
+      }
+      if (input.zone !== undefined && (typeof input.zone !== "string" || !input.zone)) {
+        throw Object.assign(new Error("zone must be a non-empty string"), { status: 400 });
+      }
+      const id = nextTaskId();
+      ctx.tasks.set(id, {
+        id,
+        dropoff: input.dropoff,
+        ...(input.zone === undefined ? {} : { zone: input.zone }),
+        status: "requested",
+        createdAt: Date.now(),
+      });
+      if (input.zone !== undefined) {
+        ctx.demands = consumeDemand(ctx.demands, input.zone);
+        const all = demandList(ctx.demands);
+        for (const send of [...ctx.demandSubs]) send(all);
+      }
+      return { ok: true, taskId: id };
+    })
+    .post("/api/sites/:name/tasks/:taskId/pickup", async ({ headers, params, body }) => {
+      // Attach the pickup that makes a request dispatchable.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const id = decodeURIComponent(params.taskId);
+      const task = ctx.tasks.get(id);
+      if (!task) throw Object.assign(new Error("unknown task"), { status: 404 });
+      if (task.status !== "requested") {
+        throw Object.assign(new Error("only requested tasks take a pickup"), { status: 409 });
+      }
+      const input = (body ?? {}) as { pickup?: unknown };
+      if (typeof input.pickup !== "string" || !input.pickup) {
+        throw Object.assign(new Error("pickup required"), { status: 400 });
+      }
+      if (!ctx.site.nodes.some((n) => n.id === input.pickup)) {
+        throw Object.assign(new Error("pickup must be a known node"), { status: 400 });
+      }
+      if (!shortestPath(ctx.site, input.pickup, task.dropoff)) {
+        throw Object.assign(
+          new Error(`no route from "${input.pickup}" to "${task.dropoff}"`),
+          { status: 409 },
+        );
+      }
+      task.pickup = input.pickup;
+      task.status = "queued";
+      pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, poseTtlMs });
+      return { ok: true, taskId: id };
+    })
     .get("/api/sites/:name/tasks", async ({ headers, params }) => {
       const me = await auth.me(bearerFromHeaders(headers));
       const ctx = contexts.get(decodeURIComponent(params.name));
@@ -631,6 +698,17 @@ export function buildApp(
       const id = decodeURIComponent(params.taskId);
       const task = ctx.tasks.get(id);
       if (!task) throw Object.assign(new Error("unknown task"), { status: 404 });
+      // Withdrawing a request returns its demand unit: the need did not
+      // go away just because nobody will drive it.
+      if (task.status === "requested") {
+        if (task.zone !== undefined) {
+          ctx.demands = addDemand(ctx.demands, task.zone, 1);
+          const all = demandList(ctx.demands);
+          for (const send of [...ctx.demandSubs]) send(all);
+        }
+        ctx.tasks.delete(id);
+        return { ok: true };
+      }
       // Assigned tasks are orders in flight — cancel the order instead.
       if (task.status !== "queued") {
         throw Object.assign(new Error("only queued tasks can be withdrawn"), { status: 409 });

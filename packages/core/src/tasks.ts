@@ -2,12 +2,19 @@ import { shortestPath } from "./plan.js";
 import { isFresh } from "./poses.js";
 import type { Site } from "./site.js";
 
-/** A pickup→dropoff job: queued until a free robot takes it. */
+/**
+ * A pickup→dropoff job. `requested` is demand not yet dispatchable: the
+ * dropoff is known but nobody has attached a pickup, so the pump skips
+ * it until it becomes `queued`. Only queued tasks ever reach a robot.
+ */
 export interface TaskView {
   id: string;
-  pickup: string;
+  /** Absent while requested — attached later via the pickup endpoint. */
+  pickup?: string;
   dropoff: string;
-  status: "queued" | "assigned" | "done" | "failed";
+  status: "requested" | "queued" | "assigned" | "done" | "failed";
+  /** Demand zone this task was requested for, if any (pump weighting). */
+  zone?: string;
   assignee?: string;
   /** Fleet order id once dispatched — the key into order history. */
   orderId?: string;
@@ -75,6 +82,13 @@ function assignQueuedTasks({ site, fleet, poses, tasks, poseTtlMs }: TaskPump): 
   const byId = new Map(site.nodes.map((n) => [n.id, n]));
   for (const task of [...tasks.values()]) {
     if (task.status !== "queued") continue;
+    // Requested tasks never reach the pump (only queued do), so a
+    // missing pickup here means corrupt state, not a slow dispatcher.
+    if (task.pickup === undefined) {
+      task.status = "failed";
+      task.reason = `unknown pickup or dropoff node`;
+      continue;
+    }
     const pickup = byId.get(task.pickup);
     const drop = byId.get(task.dropoff);
     if (!pickup || !drop) {

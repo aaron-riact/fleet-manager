@@ -831,6 +831,130 @@ describe("HTTP API", () => {
     }
   });
 
+  test("requests consume demand, attach into dispatchable tasks", async () => {
+    const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
+    const dir = mkdtempSync(join(tmpdir(), "fleet-requests-"));
+    const file = join(dir, "users.json");
+    writeFileSync(file, serializeUsersFile([user]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({
+        name: "coalescent",
+        nodes: [
+          { id: "a", x: 0, y: 0 },
+          { id: "b", x: 12, y: 0 },
+          { id: "island", x: 50, y: 50 },
+        ],
+        links: [{ source: "a", destination: "b", bidirectional: true }],
+      }),
+    );
+    const { server, port, contexts } = await serve({
+      port: 0,
+      usersFile: file,
+      sitesDir,
+      srp: testSrp,
+    });
+    const base = `http://localhost:${port}`;
+    const post = async (path: string, body: unknown, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const ctx = contexts.get("coalescent")!;
+    const robot = new AgvController(
+      { manufacturer: "RobotCompany", serialNumber: "req-1" },
+      {
+        interfaceName: "coalescent",
+        vdaVersion: "2.0.0",
+        transport: { brokerUrl: "mqtt://memory" },
+        topicObjectValidation: { inbound: false, outbound: false },
+      },
+      { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+      { vehicleSpeed: 8, initialPosition: { mapId: "local", x: 0, y: 0, theta: 0, lastNodeId: "0" } },
+    );
+    attachMemoryTransport(robot, ctx.hub);
+    await robot.start();
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      const getTasks = async () =>
+        (await (
+          await fetch(`${base}/api/sites/coalescent/tasks`, {
+            headers: { authorization: `Bearer ${token}` },
+          })
+        ).json()) as {
+          tasks: Array<{ id: string; status: string; pickup?: string; assignee?: string; orderId?: string }>;
+        };
+
+      // validation rejects before anything is stored
+      expect((await post("/api/sites/coalescent/tasks/request", {}, token)).status).toBe(400);
+      expect(
+        (await post("/api/sites/coalescent/tasks/request", { dropoff: "ghost" }, token)).status,
+      ).toBe(400);
+      expect(
+        (await post("/api/sites/coalescent/tasks/ghost/pickup", { pickup: "a" }, token)).status,
+      ).toBe(404);
+
+      // one unit of dock demand becomes one request, counter decremented
+      await post("/api/sites/coalescent/demand", { zone: "dock", count: 1 }, token);
+      const requested = await (
+        await post("/api/sites/coalescent/tasks/request", { dropoff: "b", zone: "dock" }, token)
+      ).json();
+      expect(requested.ok).toBe(true);
+      expect(ctx.demands).toEqual({ dock: 0 });
+      // requested tasks wait: no dispatch without a pickup, even idle robots near
+      await new Promise((r) => setTimeout(r, 1000));
+      expect(ctx.fleet.activeOrderList()).toEqual([]);
+      expect((await getTasks()).tasks.find((t) => t.id === requested.taskId)?.status).toBe("requested");
+
+      // attach validation, then the real pickup dispatches to completion
+      const attach = (id: string, body: unknown) =>
+        post(`/api/sites/coalescent/tasks/${id}/pickup`, body, token);
+      expect((await attach(requested.taskId, {})).status).toBe(400);
+      expect((await attach(requested.taskId, { pickup: "ghost" })).status).toBe(400);
+      expect((await attach(requested.taskId, { pickup: "island" })).status).toBe(409);
+      expect((await attach(requested.taskId, { pickup: "a" })).status).toBe(200);
+      expect((await attach(requested.taskId, { pickup: "a" })).status).toBe(409);
+
+      const doneDeadline = Date.now() + 45_000;
+      let done;
+      for (;;) {
+        const { tasks } = await getTasks();
+        done = tasks.find((t) => t.id === requested.taskId);
+        if (done?.status === "done") break;
+        if (done?.status === "failed" || Date.now() > doneDeadline) {
+          throw new Error(`requested task did not complete: ${JSON.stringify(done)}`);
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      expect(done).toMatchObject({ assignee: "req-1", pickup: "a" });
+      expect(typeof done!.orderId).toBe("string");
+
+      // withdrawing a request returns its demand unit
+      await post("/api/sites/coalescent/demand", { zone: "dock", count: 1 }, token);
+      const requested2 = await (
+        await post("/api/sites/coalescent/tasks/request", { dropoff: "b", zone: "dock" }, token)
+      ).json();
+      expect(ctx.demands).toEqual({ dock: 0 });
+      const del = await fetch(`${base}/api/sites/coalescent/tasks/${requested2.taskId}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(del.status).toBe(200);
+      expect(ctx.demands).toEqual({ dock: 1 });
+      expect((await getTasks()).tasks.map((t) => t.id)).not.toContain(requested2.taskId);
+    } finally {
+      await robot.stop();
+      for (const [, c] of contexts) await c.master.stop();
+      server.stop(true);
+    }
+  }, 120_000);
+
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();
     try {

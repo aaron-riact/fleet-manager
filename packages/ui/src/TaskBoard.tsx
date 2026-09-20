@@ -13,6 +13,8 @@ function taskColor(status: TaskView["status"]): string {
       return theme.accent;
     case "failed":
       return theme.bad;
+    case "requested":
+      return theme.warn;
     case "queued":
       return theme.textDim;
   }

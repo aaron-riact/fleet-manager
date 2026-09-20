@@ -116,6 +116,21 @@ describe("pumpSiteTasks", () => {
     expect(tasks.get("t3")).toMatchObject({ status: "failed", reason: expect.stringMatching(/no route/) });
   });
 
+  test("requested tasks wait for a pickup and survive pruning", () => {
+    const { base, calls, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
+    tasks.set("req", { id: "req", dropoff: "c", zone: "dock", status: "requested", createdAt: 1 });
+    for (let i = 0; i < MAX_RETAINED_TASKS + 5; i++) {
+      tasks.set(`done-${i}`, { ...queued(`done-${i}`), status: "done", createdAt: i });
+    }
+    pumpSiteTasks(base);
+    // invisible to the pump, immune to the prune: not dispatchable yet, never stale
+    expect(tasks.get("req")!.status).toBe("requested");
+    expect("pickup" in tasks.get("req")!).toBe(false);
+    expect(calls).toHaveLength(0);
+    expect(tasks.has("req")).toBe(true);
+    expect([...tasks.values()].filter((t) => t.status === "done")).toHaveLength(MAX_RETAINED_TASKS);
+  });
+
   test("terminal tasks are bounded, live ones never dropped", () => {
     const { base, tasks } = setup({ poses: new Map() });
     for (let i = 0; i < MAX_RETAINED_TASKS + 5; i++) {
