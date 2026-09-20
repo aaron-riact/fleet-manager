@@ -137,13 +137,16 @@ describe("trolley pick and drop", () => {
 
       expect(world.trolleyAt("depot")).toBe("trolley-1");
       expect(world.carrierOf("trolley-1")).toBeUndefined();
+      // Parked perpendicular to the stance facing: long side to the triangle.
+      expect(world.trolleyPose("depot")?.theta).toBeCloseTo(-Math.PI / 2, 5);
       const after = seen.slice(seen.indexOf(last) + 1);
       const dropPositions = after.map((s) => s.agvPosition).filter((p) => p !== undefined);
       // Dock is stance (-1, 0) projected along theta π to (-2, 0); faced
-      // the triangle (stance theta π) and exited 1m toward it, to (-3, 0).
-      expect(Math.min(...dropPositions.map((p) => p!.x))).toBeLessThan(-2.5);
+      // back toward the triangle and exited 1m onto the stance, facing 0.
+      expect(Math.min(...dropPositions.map((p) => p!.x))).toBeLessThan(-1.9);
       const dropEnd = dropPositions[dropPositions.length - 1]!;
-      expect(dropEnd.theta).toBeCloseTo(Math.PI, 1);
+      expect(dropEnd.x).toBeCloseTo(-1, 0);
+      expect(dropEnd.theta).toBeCloseTo(0, 1);
       const dropStatuses = after.flatMap((s) => (s.actionStates ?? []).map((a) => `${a.actionType}:${a.actionStatus}`));
       expect(dropStatuses).toContain("dropTrolley:FINISHED");
       expect(seen[seen.length - 1]!.loads ?? []).toEqual([]);

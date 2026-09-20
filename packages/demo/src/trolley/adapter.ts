@@ -17,7 +17,14 @@ export const DROP_TROLLEY = "dropTrolley";
 export const TROLLEY_DRIVE_MPS = 1;
 export const TROLLEY_TURN_RPS = Math.PI / 2;
 /** Slack between the motion plan and the action's Running duration. */
-export const TROLLEY_DURATION_MARGIN_S = 3;
+export const TROLLEY_DURATION_MARGIN_S = 4;
+/** Wrap any angle into (-π, π] so turn targets stay canonical. */
+export function normAngle(theta: number): number {
+  let a = theta % (2 * Math.PI);
+  if (a > Math.PI) a -= 2 * Math.PI;
+  if (a <= -Math.PI) a += 2 * Math.PI;
+  return a;
+}
 /**
  * The trolley waits this far ahead of the station stance pose, along its
  * facing. Station poses are where the robot stands; the load is at the
@@ -73,6 +80,8 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
   private readonly world: TrolleyWorld;
   private carried: string | undefined;
   private readonly drivers = new Map<string, ReturnType<typeof setInterval>>();
+  /** Park angle per in-flight drop, keyed by station. */
+  private readonly dropThetas = new Map<string, number>();
 
   constructor(controller: AgvController, options: TrolleyAdapterOptions, debug: AgvAdapterDebugger) {
     super(controller, options, debug);
@@ -227,9 +236,11 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
     this.carried = undefined;
     if (load === undefined) return { loads: [] };
     if (station !== undefined) {
-      // The trolley keeps the heading it was released under (the driver's
-      // last pose — the internal position tracks the maneuver, see publish).
-      const theta = this.vehicleState.position.theta;
+      // The trolley parks perpendicular to the stance facing: its long
+      // side faces the triangle. Captured at action start so the angle
+      // never depends on where the motion happened to end.
+      const theta = this.dropThetas.get(station) ?? 0;
+      this.dropThetas.delete(station);
       try {
         this.world.place(station, load, theta);
       } catch {
@@ -263,16 +274,21 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
       legs.push({ kind: "drive", x: dockX, y: dockY });
       if (trolleyTheta !== undefined) legs.push({ kind: "turn", to: trolleyTheta });
     } else {
-      // To the slot, release, face the triangle, exit 1m toward it — then
-      // the route drives on from there.
+      // To the slot, release, face back toward the triangle, exit 1m that
+      // way — landing on the stance, so the route drives on with no
+      // return trip. The trolley stays perpendicular, long side to the
+      // triangle.
       const dockTheta = num(p["dockTheta"])!;
+      const back = normAngle(stanceTheta + Math.PI);
+      const station = str(p["station"]);
+      if (station !== undefined) this.dropThetas.set(station, normAngle(stanceTheta + Math.PI / 2));
       legs.push({ kind: "turn", to: dockTheta });
       legs.push({ kind: "drive", x: dockX, y: dockY });
-      legs.push({ kind: "turn", to: stanceTheta });
+      legs.push({ kind: "turn", to: back });
       legs.push({
         kind: "drive",
-        x: dockX + Math.cos(stanceTheta) * 1,
-        y: dockY + Math.sin(stanceTheta) * 1,
+        x: dockX + Math.cos(back) * 1,
+        y: dockY + Math.sin(back) * 1,
       });
     }
     this.startDriving(0, 0, true);

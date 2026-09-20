@@ -267,7 +267,10 @@ function ShellView({
         </span>
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.6rem" }}>
           <span style={{ color: theme.textDim, fontSize: "0.85rem" }}>{session.username}</span>
-          <a href="#/m/map" style={{ color: theme.textDim, fontSize: "0.8rem", textDecoration: "none" }}>
+          <a
+            href={hashFor({ shell: "mobile", tab: "map", site: siteName ?? null })}
+            style={{ color: theme.textDim, fontSize: "0.8rem", textDecoration: "none" }}
+          >
             Mobile
           </a>
           <button

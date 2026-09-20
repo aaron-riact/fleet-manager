@@ -68,11 +68,6 @@ export class TrolleyWorld {
     this.atStation.set(station, { id: trolleyId, theta });
   }
 
-  /** Seed the default layout: one trolley per listed station. */
-  seedDefaults(stations: string[]): void {
-    for (const station of stations) this.seed(station, `trolley-${station}`);
-  }
-
   stations(): string[] {
     return [...this.atStation.keys()];
   }

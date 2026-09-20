@@ -14,7 +14,7 @@ import type { MemoryBackend } from "./memoryBackend";
 import { defaultActionLabel } from "@fleet-manager/ui";
 import type { MapMarker } from "@fleet-manager/ui";
 import { selectAutoParkTarget } from "./autoPark";
-import { TrolleyAdapter } from "./trolley/adapter";
+import { TrolleyAdapter, normAngle } from "./trolley/adapter";
 import { dropAttachments, pickAttachments, stationDock, stationEntry } from "./trolley/attachments";
 import { DEFAULT_TROLLEY_SEED, TrolleyWorld } from "./trolley/world";
 import { SITES, selectInitialSite } from "./sites";
@@ -331,7 +331,7 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
   const [events, setEvents] = useState<string[]>([]);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const prevLocks = useRef<LockSnapshot | undefined>(undefined);
-  const [spawnSerial, setSpawnSerial] = useState(`${siteName}-3`);
+  const [spawnSerial, setSpawnSerial] = useState(siteName === "coalescent" ? "serena-3" : `${siteName}-3`);
   const [status, setStatus] = useState("booting…");
   const [robotStatus, setRobotStatus] = useState<Record<string, string>>({});
 
@@ -373,21 +373,25 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
     let stopConns: (() => void) | undefined;
     (async () => {
       const spots = site.parking ?? [];
+      // Coalescent robots run as serena-N; other sites keep site-N names.
+      const names =
+        siteName === "coalescent" ? ["serena-1", "serena-2"] : [`${siteName}-1`, `${siteName}-2`];
       // Sparse initial layout (see DEFAULT_TROLLEY_SEED); the component
-      // remounts per site, so each site gets a fresh world. Seeded angle
-      // is the dock facing: the long axis the robot must match.
+      // remounts per site, so each site gets a fresh world. Trolleys are
+      // plain trolley-N; seeded perpendicular to the dock facing so the
+      // long side faces the triangle.
       const world = new TrolleyWorld();
       const demoSite = site as Site;
-      for (const station of DEFAULT_TROLLEY_SEED[siteName] ?? []) {
+      (DEFAULT_TROLLEY_SEED[siteName] ?? []).forEach((station, i) => {
         const dock = stationDock(demoSite, station, "pickup") ?? stationDock(demoSite, station, "dropoff");
-        world.seed(station, `trolley-${station}`, dock?.theta ?? 0);
-      }
+        world.seed(station, `trolley-${i + 1}`, normAngle((dock?.theta ?? 0) + Math.PI / 2));
+      });
       worldRef.current = world;
       const fleet = await bootFleet({
         interfaceName: site.name,
         robots: [
-          { manufacturer: MANUFACTURER, serialNumber: `${siteName}-1`, x: spots[0]?.x ?? 0, y: spots[0]?.y ?? 0 },
-          { manufacturer: MANUFACTURER, serialNumber: `${siteName}-2`, x: spots[1]?.x ?? 0, y: spots[1]?.y ?? 0 },
+          { manufacturer: MANUFACTURER, serialNumber: names[0]!, x: spots[0]?.x ?? 0, y: spots[0]?.y ?? 0 },
+          { manufacturer: MANUFACTURER, serialNumber: names[1]!, x: spots[1]?.x ?? 0, y: spots[1]?.y ?? 0 },
         ],
         adapterType: TrolleyAdapter,
         adapterOptions: { world },
@@ -397,8 +401,8 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         return;
       }
       setParked({
-        ...(spots[0] ? { [spots[0].id]: `${siteName}-1` } : {}),
-        ...(spots[1] ? { [spots[1].id]: `${siteName}-2` } : {}),
+        ...(spots[0] ? { [spots[0].id]: names[0]! } : {}),
+        ...(spots[1] ? { [spots[1].id]: names[1]! } : {}),
       });
       fleetRef.current = fleet;
       const autoParkAfterTour = (serial: string) => {

@@ -3,6 +3,7 @@ import { theme } from "./theme";
 import { ToastProvider, useFailedHistoryToasts } from "./Toast";
 import { ConfirmProvider } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
+import { hashFor } from "./routes";
 import { OfflineBanner } from "./online";
 import { FleetMap } from "./FleetMap";
 import type { MapMarker } from "./FleetMap";
@@ -128,7 +129,10 @@ function MobileView({
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: live ? theme.ok : theme.warn }} />
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={{ color: theme.textDim, fontSize: "0.75rem" }}>{session.username}</span>
-          <a href="#/" style={{ color: theme.textDim, fontSize: "0.75rem", textDecoration: "none" }}>
+          <a
+            href={hashFor({ shell: "desktop", tab: "map", site: siteName ?? null })}
+            style={{ color: theme.textDim, fontSize: "0.75rem", textDecoration: "none" }}
+          >
             Desktop
           </a>
           <button
