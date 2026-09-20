@@ -12,6 +12,9 @@ import { App, hashFor, parseHash } from "@fleet-manager/ui";
 import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
 import { selectAutoParkTarget } from "./autoPark";
+import { TrolleyAdapter } from "./trolley/adapter";
+import { dropAttachments, pickAttachments } from "./trolley/attachments";
+import { TrolleyWorld } from "./trolley/world";
 import { SITES, selectInitialSite } from "./sites";
 import { buildLocks } from "@fleet-manager/core";
 import type { DemandCounts, LockSnapshot, Site, TaskView } from "@fleet-manager/core";
@@ -67,6 +70,7 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
   const site = SITES[siteName]!;
 
   const fleetRef = useRef<DemoFleet | null>(null);
+  const worldRef = useRef<TrolleyWorld | null>(null);
   const svcRef = useRef<Fleet | null>(null);
   const locksModel = useMemo(() => buildLocks(site as Site), []);
   const posesRef = useRef<Record<string, RobotPose>>({});
@@ -92,7 +96,17 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         },
       ]),
     );
-    pumpSiteTasks({ site: site as Site, fleet: svc, poses, tasks: tasksRef.current, demands: demandsRef.current, poseTtlMs: POSE_TTL_MS });
+    pumpSiteTasks({
+      site: site as Site,
+      fleet: svc,
+      poses,
+      tasks: tasksRef.current,
+      demands: demandsRef.current,
+      poseTtlMs: POSE_TTL_MS,
+      // Trolley work rides the tour ends; plain graph nodes stay drive-only.
+      attachments: (nodeId, role) =>
+        role === "pickup" ? pickAttachments(site as Site, nodeId) : dropAttachments(site as Site, nodeId),
+    });
   }
   const [backend] = useState<MemoryBackend>(() =>
     createMemoryBackend(site as Site, {
@@ -294,12 +308,22 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
     let stopConns: (() => void) | undefined;
     (async () => {
       const spots = site.parking ?? [];
+      // One trolley per pick station; the component remounts per site, so
+      // each site gets a fresh world. Picking the same station twice demos
+      // the empty-station failure.
+      const world = new TrolleyWorld();
+      for (const loc of (site as Site).locations ?? []) {
+        if (loc.pickPose) world.seed(loc.id, `trolley-${loc.id}`);
+      }
+      worldRef.current = world;
       const fleet = await bootFleet({
         interfaceName: site.name,
         robots: [
           { manufacturer: MANUFACTURER, serialNumber: `${siteName}-1`, x: spots[0]?.x ?? 0, y: spots[0]?.y ?? 0 },
           { manufacturer: MANUFACTURER, serialNumber: `${siteName}-2`, x: spots[1]?.x ?? 0, y: spots[1]?.y ?? 0 },
         ],
+        adapterType: TrolleyAdapter,
+        adapterOptions: { world },
       });
       if (cancelled) {
         await fleet.stop();
