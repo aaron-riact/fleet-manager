@@ -51,4 +51,9 @@ export class TrolleyWorld {
   stations(): string[] {
     return [...this.atStation.keys()];
   }
+
+  /** Trolleys currently riding robots (for markers that follow the carrier). */
+  aboard(): Array<{ trolleyId: string; carrier: string }> {
+    return [...this.onRobot.entries()].map(([trolleyId, carrier]) => ({ trolleyId, carrier }));
+  }
 }

@@ -11,6 +11,8 @@ import type { ActiveOrder } from "@fleet-manager/vda";
 import { App, hashFor, parseHash } from "@fleet-manager/ui";
 import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
+import { defaultActionLabel } from "@fleet-manager/ui";
+import type { MapMarker } from "@fleet-manager/ui";
 import { selectAutoParkTarget } from "./autoPark";
 import { TrolleyAdapter } from "./trolley/adapter";
 import { dropAttachments, pickAttachments } from "./trolley/attachments";
@@ -117,9 +119,21 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         const robot = fleet.robots.find((r) => r.id.serialNumber === input.serialNumber);
         if (!robot) throw new Error(`unknown robot "${input.serialNumber}"`);
         const pose = posesRef.current[input.serialNumber];
+        // Manual tours get the same end-of-tour work as pumped ones: the
+        // first waypoint is the pickup entry, the last the drop entry.
+        // Builders return [] for plain graph nodes, so drive-only tours
+        // pass through unchanged.
+        const end = input.waypoints.length - 1;
         await svc.dispatch(
           robot.id,
-          input.waypoints.map((w) => ({ nodeId: w.nodeId, x: w.x, y: w.y })),
+          input.waypoints.map((w, i) => {
+            const first = i === 0 ? pickAttachments(site as Site, w.nodeId) : [];
+            const last = i === end ? dropAttachments(site as Site, w.nodeId) : [];
+            const actions = [...first, ...last];
+            return actions.length > 0
+              ? { nodeId: w.nodeId, x: w.x, y: w.y, actions }
+              : { nodeId: w.nodeId, x: w.x, y: w.y };
+          }),
           {
             ...(pose && Number.isFinite(pose.x) && Number.isFinite(pose.y)
               ? { from: { x: pose.x, y: pose.y } }
@@ -302,6 +316,34 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
 
   const setRobot = (serialNumber: string, s: string) =>
     setRobotStatus((prev) => ({ ...prev, [serialNumber]: s }));
+
+  // Trolley markers recompute on every pose update (4Hz): stationed
+  // trolleys sit at their dock pose, carried ones follow the robot.
+  // The map draws them; only this module knows what they are.
+  const markers = useMemo(() => {
+    const world = worldRef.current;
+    if (!world) return [];
+    const out: MapMarker[] = [];
+    const locs = new Map(((site as Site).locations ?? []).map((l) => [l.id, l]));
+    for (const station of world.stations()) {
+      const trolley = world.trolleyAt(station);
+      const dock = locs.get(station)?.pickPose ?? locs.get(station)?.dropPose;
+      if (!trolley || !dock || !Number.isFinite(dock.x) || !Number.isFinite(dock.y)) continue;
+      out.push({ id: `trolley-${trolley}`, x: dock.x, y: dock.y, label: trolley });
+    }
+    for (const { trolleyId, carrier } of world.aboard()) {
+      const pose = poses[carrier];
+      if (!pose || !Number.isFinite(pose.x) || !Number.isFinite(pose.y)) continue;
+      out.push({ id: `trolley-${trolleyId}`, x: pose.x, y: pose.y, label: trolleyId });
+    }
+    return out;
+  }, [poses, site]);
+
+  const resolveActionLabel = useMemo(
+    () => (actionType: string) =>
+      actionType === "pickTrolley" ? "PICK" : actionType === "dropTrolley" ? "DROP" : defaultActionLabel(actionType),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -551,6 +593,8 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
       sessionOverride={{ token: "demo", username: "demo", sites: [(site as Site).name] }}
       createBackend={() => backend}
       initialSite={siteName}
+      markers={markers}
+      resolveActionLabel={resolveActionLabel}
       extraPanel={
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
           <section style={panel}>
