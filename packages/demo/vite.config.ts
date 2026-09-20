@@ -5,6 +5,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: { port: 3001 },
+  // FLEET_SITE (default demo map) is read by convention, not by tooling:
+  // any FLEET_ variable is exposed to import.meta.env, no VITE_ needed.
+  envPrefix: ["VITE_", "FLEET_"],
   define: {
     __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace("T", " ")),
   },

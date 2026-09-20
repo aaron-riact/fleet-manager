@@ -23,6 +23,8 @@ export interface MobileShellProps {
   extraPanel?: React.ReactNode;
   tab: MobileTab;
   onTabChange: (tab: MobileTab) => void;
+  /** Pinned initial site (deep links); the stored selection wins afterwards. */
+  initialSite?: string | null;
 }
 
 const page: React.CSSProperties = {
@@ -43,9 +45,9 @@ const glass: React.CSSProperties = {
   backdropFilter: "blur(10px)",
 };
 
-function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange }: MobileShellProps) {
+function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange, initialSite }: MobileShellProps) {
   const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
-    useFleetSite(backend);
+    useFleetSite(backend, initialSite);
   useFailedHistoryToasts(history);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 

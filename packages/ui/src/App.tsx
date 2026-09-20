@@ -119,6 +119,8 @@ export interface ShellProps {
   backend: Backend;
   onLogout: () => void;
   extraPanel?: React.ReactNode;
+  /** Pinned initial site (deep links); the stored selection wins afterwards. */
+  initialSite?: string | null;
 }
 
 export function Shell(props: ShellProps) {
@@ -131,10 +133,10 @@ export function Shell(props: ShellProps) {
   );
 }
 
-function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
+function ShellView({ session, backend, onLogout, extraPanel, initialSite }: ShellProps) {
   const toast = useToast();
   const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
-    useFleetSite(backend);
+    useFleetSite(backend, initialSite);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
   useFailedHistoryToasts(history);
@@ -349,11 +351,14 @@ export default function App({
   createBackend,
   sessionOverride,
   extraPanel,
+  initialSite,
 }: {
   createBackend?: (session: LoginSession) => Backend;
   /** Demo bypass: skip the login form entirely. */
   sessionOverride?: LoginSession | null;
   extraPanel?: React.ReactNode;
+  /** Pinned initial site (deep links); the stored selection wins afterwards. */
+  initialSite?: string | null;
 } = {}) {
   const [session, setSession] = useState<LoginSession | null>(() => loadSession());
   const effective = sessionOverride ?? session;
@@ -399,9 +404,10 @@ export default function App({
             extraPanel={extraPanel}
             tab={tab}
             onTabChange={(t) => navigate(hashFor({ shell: "mobile", tab: t }))}
+            initialSite={initialSite}
           />
         ) : (
-          <Shell session={effective} backend={backend} onLogout={handleLogout} extraPanel={extraPanel} />
+          <Shell session={effective} backend={backend} onLogout={handleLogout} extraPanel={extraPanel} initialSite={initialSite} />
         )
       ) : (
         <LoginForm onLogin={handleLogin} />

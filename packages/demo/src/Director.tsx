@@ -11,14 +11,13 @@ import type { ActiveOrder } from "@fleet-manager/vda";
 import { App } from "@fleet-manager/ui";
 import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
-import siteData from "../../../data/seed/sites/demo.json";
+import { SITES, selectInitialSite } from "./sites";
 import { buildLocks } from "@fleet-manager/core";
 import type { DemandCounts, LockSnapshot, Site, TaskView } from "@fleet-manager/core";
 import { POSE_TTL_MS } from "@fleet-manager/ui";
 
 declare const __BUILD_ID__: string;
 
-const site = siteData as Site;
 const MANUFACTURER = "RobotCompany";
 
 const panel: React.CSSProperties = {
@@ -28,7 +27,30 @@ const panel: React.CSSProperties = {
   padding: "1rem",
 };
 
+/** FLEET_SITE is read through Vite's env allowlist (see vite.config.ts envPrefix). */
+function envSite(): string | undefined {
+  const value = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.FLEET_SITE;
+  return value && SITES[value] ? value : undefined;
+}
+
+function hashSite(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const match = window.location.hash.match(/^#\/site=([^/]+)\/?$/);
+  return match?.[1] && SITES[match[1]] ? match[1] : undefined;
+}
+
 export default function Director() {
+  // Read once at boot: afterwards the in-app switcher owns selection via
+  // onNavigate below. The hash is deliberately not written back — App's
+  // own `#/` and `#/m/` routes own window.location.hash after boot, and
+  // the two must never clobber each other.
+  const [siteName, setSiteName] = useState(() => hashSite() ?? envSite() ?? selectInitialSite());
+  return <DirectorWorld key={siteName} siteName={siteName} onNavigate={setSiteName} />;
+}
+
+function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate: (name: string) => void }) {
+  const site = SITES[siteName]!;
+
   const fleetRef = useRef<DemoFleet | null>(null);
   const svcRef = useRef<Fleet | null>(null);
   const locksModel = useMemo(() => buildLocks(site as Site), []);
@@ -221,7 +243,14 @@ export default function Director() {
         }
         return { parked, failed };
       },
-    }),
+    },
+    {
+      listSites: () => Object.keys(SITES),
+      getMap: (name: string) => SITES[name],
+      onSelectSite: (name: string) => {
+        if (SITES[name] && name !== siteName) onNavigate(name);
+      },
+    })
   );
   const [serials, setSerials] = useState<string[]>([]);
   const [poses, setPoses] = useState<Record<string, RobotPose>>({});
@@ -233,7 +262,7 @@ export default function Director() {
   const [events, setEvents] = useState<string[]>([]);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const prevLocks = useRef<LockSnapshot | undefined>(undefined);
-  const [spawnSerial, setSpawnSerial] = useState("demo-3");
+  const [spawnSerial, setSpawnSerial] = useState(`${siteName}-3`);
   const [status, setStatus] = useState("booting…");
   const [robotStatus, setRobotStatus] = useState<Record<string, string>>({});
 
@@ -246,9 +275,10 @@ export default function Director() {
     (async () => {
       const spots = site.parking ?? [];
       const fleet = await bootFleet({
+        interfaceName: site.name,
         robots: [
-          { manufacturer: MANUFACTURER, serialNumber: "demo-1", x: spots[0]?.x ?? 0, y: spots[0]?.y ?? 0 },
-          { manufacturer: MANUFACTURER, serialNumber: "demo-2", x: spots[1]?.x ?? 0, y: spots[1]?.y ?? 0 },
+          { manufacturer: MANUFACTURER, serialNumber: `${siteName}-1`, x: spots[0]?.x ?? 0, y: spots[0]?.y ?? 0 },
+          { manufacturer: MANUFACTURER, serialNumber: `${siteName}-2`, x: spots[1]?.x ?? 0, y: spots[1]?.y ?? 0 },
         ],
       });
       if (cancelled) {
@@ -256,8 +286,8 @@ export default function Director() {
         return;
       }
       setParked({
-        ...(spots[0] ? { [spots[0].id]: "demo-1" } : {}),
-        ...(spots[1] ? { [spots[1].id]: "demo-2" } : {}),
+        ...(spots[0] ? { [spots[0].id]: `${siteName}-1` } : {}),
+        ...(spots[1] ? { [spots[1].id]: `${siteName}-2` } : {}),
       });
       fleetRef.current = fleet;
       const svc = new Fleet(fleet.master, locksModel, {
@@ -414,6 +444,7 @@ export default function Director() {
     <App
       sessionOverride={{ token: "demo", username: "demo", sites: [(site as Site).name] }}
       createBackend={() => backend}
+      initialSite={siteName}
       extraPanel={
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
           <section style={panel}>

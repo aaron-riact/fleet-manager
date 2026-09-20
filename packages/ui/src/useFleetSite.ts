@@ -42,12 +42,13 @@ function storedSiteName(): string | null {
  * Subscribe one backend site: map, poses, locks, orders, history, plus
  * the staleness sweep. Extracted from Shell so desktop and mobile shells
  * share one subscription implementation instead of copying six effects.
- * The selected site persists across reloads per browser.
+ * The selected site persists across reloads per browser, unless the
+ * caller pins an initial site (deep links) that takes precedence once.
  */
-export function useFleetSite(backend: Backend): FleetSiteData {
+export function useFleetSite(backend: Backend, initialSite?: string | null): FleetSiteData {
   const [site, setSite] = useState<Site | null>(null);
   const [sites, setSites] = useState<string[]>([]);
-  const [wanted, setWanted] = useState<string | null>(() => storedSiteName());
+  const [wanted, setWanted] = useState<string | null>(() => initialSite ?? storedSiteName());
   const [error, setError] = useState<string | null>(null);
   const [poses, setPoses] = useState<Record<string, LivePose>>({});
   const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);

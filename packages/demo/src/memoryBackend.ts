@@ -18,6 +18,18 @@ export interface MemoryBackend extends Backend {
   emitDemands(demands: ZoneDemand[]): void;
 }
 
+/**
+ * Demo-host hooks. The twin serves one live world, but the switcher
+ * lists every bundled map and every map resolves statically — so
+ * selecting another site just needs a nudge to reboot onto it.
+ */
+export interface MemoryBackendMaps {
+  listSites?: () => string[];
+  getMap?: (name: string) => Site | undefined;
+  /** Fired when a subscription names a site other than the live one. */
+  onSelectSite?: (name: string) => void;
+}
+
 export interface MemoryBackendActions {
   dispatchOrder?(site: string, input: DispatchInput): Promise<void>;
   parkRobot?(site: string, input: { serialNumber: string; spotId?: string }): Promise<{ spot: string }>;
@@ -41,7 +53,11 @@ export interface MemoryBackendActions {
  * In-memory Backend twin for the serverless demo. Same interface the
  * ops UI consumes; fed by the in-page fleet instead of HTTP/SSE.
  */
-export function createMemoryBackend(site: Site, actions: MemoryBackendActions = {}): MemoryBackend {
+export function createMemoryBackend(
+  site: Site,
+  actions: MemoryBackendActions = {},
+  maps: MemoryBackendMaps = {},
+): MemoryBackend {
   const poseListeners = new Set<(pose: LivePose) => void>();
   const lockListeners = new Set<(snapshot: LockSnapshot) => void>();
   const orderListeners = new Set<(orders: OrderView[]) => void>();
@@ -61,15 +77,43 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
       for (const listener of [...set]) listener(value);
     };
 
+  // A subscription naming another site is the switcher asking for a
+  // world this twin does not run — nudge the host to reboot onto it.
+  const noteSelection = (name: string) => {
+    if (name !== site.name) maps.onSelectSite?.(name);
+  };
+
   return {
-    listSites: async () => [site.name],
-    getMap: async () => site,
-    watchPoses: (_site, onPose) => subscribe(poseListeners, onPose),
-    watchLocks: (_site, onLocks) => subscribe(lockListeners, onLocks),
-    watchOrders: (_site, onOrders) => subscribe(orderListeners, onOrders),
-    watchHistory: (_site, onHistory) => subscribe(historyListeners, onHistory),
-    watchConnections: (_site, onConns) => subscribe(connListeners, onConns),
-    watchDemands: (_site, onDemands) => subscribe(demandListeners, onDemands),
+    listSites: async () => maps.listSites?.() ?? [site.name],
+    getMap: async (name: string) => {
+      const map = maps.getMap?.(name) ?? (name === site.name ? site : undefined);
+      if (!map) throw new Error(`unknown site "${name}"`);
+      return map;
+    },
+    watchPoses: (_site, onPose) => {
+      noteSelection(_site);
+      return subscribe(poseListeners, onPose);
+    },
+    watchLocks: (_site, onLocks) => {
+      noteSelection(_site);
+      return subscribe(lockListeners, onLocks);
+    },
+    watchOrders: (_site, onOrders) => {
+      noteSelection(_site);
+      return subscribe(orderListeners, onOrders);
+    },
+    watchHistory: (_site, onHistory) => {
+      noteSelection(_site);
+      return subscribe(historyListeners, onHistory);
+    },
+    watchConnections: (_site, onConns) => {
+      noteSelection(_site);
+      return subscribe(connListeners, onConns);
+    },
+    watchDemands: (_site, onDemands) => {
+      noteSelection(_site);
+      return subscribe(demandListeners, onDemands);
+    },
     dispatchOrder: async (site, input) => {
       if (!actions.dispatchOrder) throw new Error(`no dispatcher for site "${site}"`);
       await actions.dispatchOrder(site, input);
