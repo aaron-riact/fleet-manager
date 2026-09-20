@@ -228,6 +228,10 @@ export async function buildSiteContexts(
     // pump calls below always read live demand through this reference.
     const demands: DemandCounts = {};
     const demandSubs = new Set<(demands: ZoneDemand[]) => void>();
+    // Robots currently being auto-parked, with the spot each is headed to.
+    // Park resolves on arrival, so without this two completions could aim
+    // two robots at the same spot.
+    const parkingTargets = new Map<string, string>();
     const fleet = await bootSiteFleet(
       site,
       interfaceName,
@@ -242,6 +246,40 @@ export async function buildSiteContexts(
         },
         onHistory: (history) => {
           for (const send of [...historySubs]) send(history);
+        },
+        onOrderDone: (serial) => {
+          // Finished tours clear the graph into parking, like the source:
+          // idle robots wait off-graph holding nothing instead of sitting
+          // on nodes other tours must route around. Skipped with no
+          // parking, no fresh fix, a new tour already, or a park underway.
+          const now = Date.now();
+          const pose = poses.get(serial);
+          if (
+            !pose ||
+            !isFresh(pose, now, poseTtlMs) ||
+            !Number.isFinite(pose.x) ||
+            !Number.isFinite(pose.y) ||
+            fleet.fleet.isBusy(serial) ||
+            parkingTargets.has(serial)
+          ) {
+            return;
+          }
+          const spots = site.parking ?? [];
+          if (spots.length === 0) return;
+          const taken = new Set(parkingTargets.values());
+          const spot = freeSpot(
+            spots.filter((s) => !taken.has(s.id)),
+            occupiedSpots(spots, freshPoses(poses.values(), now, poseTtlMs)),
+            pose,
+          );
+          if (!spot) return;
+          parkingTargets.set(serial, spot.id);
+          fleet.fleet
+            .park({ manufacturer: pose.manufacturer, serialNumber: serial }, spot, { from: pose })
+            .catch((error: unknown) => console.warn("auto-park failed", error))
+            .finally(() => {
+              parkingTargets.delete(serial);
+            });
         },
       },
       options.brokerUrl ? { brokerUrl: options.brokerUrl } : {},

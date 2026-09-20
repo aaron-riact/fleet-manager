@@ -110,6 +110,23 @@ describe("order history", () => {
     expect(fleet.orderHistory().map((h) => h.orderId)).toEqual([orderId]);
   });
 
+  test("onOrderDone fires for driven tours, never for rejects", async () => {
+    const done: Array<[string, string]> = [];
+    const completed = new Fleet(stubMaster(), stubLocks(), {
+      onOrderDone: (serial, outcome) => void done.push([serial, outcome]),
+    });
+    await completed.dispatch(robot("h-done"), waypoints);
+    expect(done).toEqual([["h-done", "completed"]]);
+    const failed = new Fleet(stubMaster(new Error("boom")), stubLocks(), {
+      onOrderDone: (serial, outcome) => void done.push([serial, outcome]),
+    });
+    await expect(failed.dispatch(robot("h-boom"), waypoints)).rejects.toThrow(/boom/);
+    expect(done).toEqual([
+      ["h-done", "completed"],
+      ["h-boom", "failed"],
+    ]);
+  });
+
   test("exit appends an off-graph leg past the final node", async () => {
     const seen: ActiveOrder[][] = [];
     const fleet = new Fleet(stubMaster(), stubLocks(), {

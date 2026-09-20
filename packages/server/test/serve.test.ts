@@ -965,6 +965,93 @@ describe("HTTP API", () => {
     }
   }, 120_000);
 
+  test("completed tours auto-park into the nearest free spot", async () => {
+    const user = await testUser("http@cmr", "s3cret", ["coalescent"]);
+    const dir = mkdtempSync(join(tmpdir(), "fleet-autopark-"));
+    const file = join(dir, "users.json");
+    writeFileSync(file, serializeUsersFile([user]));
+    const sitesDir = join(dir, "sites");
+    mkdirSync(sitesDir);
+    writeFileSync(
+      join(sitesDir, "coalescent.json"),
+      JSON.stringify({
+        name: "coalescent",
+        nodes: [
+          { id: "a", x: 0, y: 0 },
+          { id: "b", x: 12, y: 0 },
+        ],
+        links: [{ source: "a", destination: "b", bidirectional: true }],
+        parking: [
+          { id: "p1", x: 1, y: 1, entry: "a" },
+          { id: "p2", x: 11, y: 1, entry: "b" },
+        ],
+      }),
+    );
+    const { server, port, contexts } = await serve({
+      port: 0,
+      usersFile: file,
+      sitesDir,
+      srp: testSrp,
+    });
+    const base = `http://localhost:${port}`;
+    const post = async (path: string, body: unknown, token?: string) =>
+      fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    const ctx = contexts.get("coalescent")!;
+    const robot = new AgvController(
+      { manufacturer: "RobotCompany", serialNumber: "auto-1" },
+      {
+        interfaceName: "coalescent",
+        vdaVersion: "2.0.0",
+        transport: { brokerUrl: "mqtt://memory" },
+        topicObjectValidation: { inbound: false, outbound: false },
+      },
+      { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
+      { vehicleSpeed: 8, initialPosition: { mapId: "local", x: 0, y: 0, theta: 0, lastNodeId: "0" } },
+    );
+    attachMemoryTransport(robot, ctx.hub);
+    await robot.start();
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      const tour = await post(
+        "/api/sites/coalescent/orders",
+        {
+          serialNumber: "auto-1",
+          waypoints: [
+            { nodeId: "a", x: 0, y: 0 },
+            { nodeId: "b", x: 12, y: 0 },
+          ],
+        },
+        token,
+      );
+      expect(tour.status).toBe(200);
+      // tour ends at b; the nearest free spot is p2, not the start corner.
+      // Pose nearness proves the drive; empty locks prove the park order
+      // itself completed (completion is what clears the tour's locks).
+      const deadline = Date.now() + 60_000;
+      for (;;) {
+        const pose = ctx.poses.get("auto-1");
+        const nearSpot = pose !== undefined && Math.hypot(pose.x - 11, pose.y - 1) < 1.5;
+        const clear = ctx.locks.snapshot().nodeLocks.every((n) => n.owners.length === 0);
+        if (nearSpot && clear) break;
+        if (Date.now() > deadline) {
+          throw new Error(`robot never parked: ${JSON.stringify(pose)}`);
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    } finally {
+      await robot.stop();
+      for (const [, c] of contexts) await c.master.stop();
+      server.stop(true);
+    }
+  }, 120_000);
+
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();
     try {

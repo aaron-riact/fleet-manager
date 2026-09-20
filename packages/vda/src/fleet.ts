@@ -95,6 +95,12 @@ export interface FleetEvents {
   onArrived?: (serial: string, nodeId: string, index: number) => void;
   /** Retained history after each lifecycle end (history views). */
   onHistory?: (history: OrderHistory[]) => void;
+  /**
+   * A dispatched tour ended after the robot drove (completed or failed).
+   * Fires for neither cancels (the operator owns the stopped robot)
+   * nor assign rejections (it never moved).
+   */
+  onOrderDone?: (serial: string, outcome: "completed" | "failed") => void;
 }
 
 export type OrderOutcome = "completed" | "cancelled" | "failed";
@@ -166,6 +172,14 @@ export class Fleet {
   private emitHistory(): void {
     try {
       this.events.onHistory?.(this.orderHistory());
+    } catch {
+      /* listener errors must not break dispatch */
+    }
+  }
+
+  private emitDone(serial: string, outcome: "completed" | "failed"): void {
+    try {
+      this.events.onOrderDone?.(serial, outcome);
     } catch {
       /* listener errors must not break dispatch */
     }
@@ -410,8 +424,13 @@ export class Fleet {
           else granting.clearAllExceptLastPathLocks();
           this.emit();
           this.activeOrders.delete(serial);
-          if (error) finish("failed", failureReason(error));
-          else finish("completed");
+          if (error) {
+            finish("failed", failureReason(error));
+            this.emitDone(serial, "failed");
+          } else {
+            finish("completed");
+            this.emitDone(serial, "completed");
+          }
           this.emitOrders();
           if (error) reject(error);
           else resolve(orderId);
