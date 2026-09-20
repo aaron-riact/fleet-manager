@@ -10,6 +10,7 @@ import { POSE_TTL_MS, RobotCards, buildCards, filterCards, pruneStalePoses, summ
 import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { TaskBoard } from "./TaskBoard";
+import { ToastProvider, useToast } from "./Toast";
 import { statusColor, theme } from "./theme";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
@@ -107,17 +108,23 @@ function LoginForm({ onLogin }: { onLogin: (s: LoginSession) => void }) {
   );
 }
 
-export function Shell({
-  session,
-  backend,
-  onLogout,
-  extraPanel,
-}: {
+export interface ShellProps {
   session: LoginSession;
   backend: Backend;
   onLogout: () => void;
   extraPanel?: React.ReactNode;
-}) {
+}
+
+export function Shell(props: ShellProps) {
+  return (
+    <ToastProvider>
+      <ShellView {...props} />
+    </ToastProvider>
+  );
+}
+
+function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
+  const toast = useToast();
   const [site, setSite] = useState<Site | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [poses, setPoses] = useState<Record<string, LivePose>>({});
@@ -178,6 +185,31 @@ export function Shell({
       for (const cleanup of cleanups) cleanup();
     };
   }, [backend]);
+
+  const seenHistory = useRef(new Set<string>());
+  // Toast background failures: tours that die outside any open form would
+  // otherwise surface nowhere — the history stream is the only witness.
+  // The first snapshot only marks ids seen, never toasts: those failures
+  // predate this session.
+  useEffect(() => {
+    const seen = seenHistory.current;
+    const first = seen.size === 0;
+    for (const h of history) {
+      if (!seen.has(h.orderId)) {
+        if (!first && h.outcome === "failed") {
+          toast.show({
+            kind: "bad",
+            message: `Tour for ${h.serial} failed${h.reason ? `: ${h.reason}` : ""}`,
+          });
+        }
+        seen.add(h.orderId);
+      }
+    }
+    if (seen.size > history.length + 50) {
+      const live = new Set(history.map((h) => h.orderId));
+      for (const id of seen) if (!live.has(id)) seen.delete(id);
+    }
+  }, [history, toast]);
 
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
   const summary = useMemo(() => summarizeCards(cards), [cards]);

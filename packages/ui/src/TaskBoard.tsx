@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { theme } from "./theme";
+import { useToast } from "./Toast";
 import type { Backend } from "./backend";
 import type { MapNode, TaskView } from "@fleet-manager/core";
 
@@ -48,8 +49,8 @@ export function TaskBoard({
   const [tasks, setTasks] = useState<TaskView[]>([]);
   const [pickup, setPickup] = useState(nodes[0]?.id ?? "");
   const [dropoff, setDropoff] = useState(nodes[1]?.id ?? nodes[0]?.id ?? "");
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -69,24 +70,24 @@ export function TaskBoard({
     event.preventDefault();
     if (!pickup || !dropoff || busy) return;
     setBusy(true);
-    setError(null);
     try {
-      await backend.submitTask(siteName, { pickup, dropoff });
+      const { taskId } = await backend.submitTask(siteName, { pickup, dropoff });
+      toast.show({ kind: "ok", message: `Task ${taskId} queued (${pickup} → ${dropoff})` });
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "submit failed");
+      toast.show({ kind: "bad", message: e instanceof Error ? e.message : "submit failed" });
     } finally {
       setBusy(false);
     }
   }
 
   async function withdraw(taskId: string) {
-    setError(null);
     try {
       await backend.withdrawTask(siteName, taskId);
+      toast.show({ kind: "info", message: `Task ${taskId} withdrawn` });
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "withdraw failed");
+      toast.show({ kind: "bad", message: e instanceof Error ? e.message : "withdraw failed" });
     }
   }
 
@@ -129,7 +130,6 @@ export function TaskBoard({
             {busy ? "…" : "Send"}
           </button>
         </div>
-        {error && <p style={{ color: theme.bad, fontSize: "0.78rem", margin: "0.4rem 0 0" }}>{error}</p>}
       </form>
       {tasks.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.5rem" }}>
