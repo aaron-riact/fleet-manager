@@ -275,6 +275,7 @@ export function Shell({
                   x: p.x,
                   y: p.y,
                   theta: p.theta,
+                  laden: p.laden,
                 }))}
               />
             </div>

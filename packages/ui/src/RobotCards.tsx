@@ -184,6 +184,7 @@ export function RobotCards({
                   ? "unlocalized"
                   : `${card.pose.x.toFixed(1)}, ${card.pose.y.toFixed(1)}`}
               {card.pose?.charging ? " · charging" : ""}
+              {card.pose?.laden ? " · laden" : ""}
               {card.pose?.batteryCharge !== undefined ? ` · ${Math.round(card.pose.batteryCharge)}%` : ""}
               {card.pose?.eStop ? " · e-stop" : ""}
               {card.holding.length > 0 ? ` · holds ${card.holding.join(", ")}` : ""}

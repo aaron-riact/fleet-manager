@@ -8,6 +8,7 @@ const pose = (serialNumber: string, x = 1, y = 2, driving = false) => ({
   y,
   theta: 0,
   driving,
+  laden: false,
   charging: false,
   positionInitialized: true,
   eStop: false,
@@ -56,6 +57,12 @@ describe("fleet overview", () => {
     expect(cards.find((c) => c.serialNumber === "c")?.status).toBe("charging");
     expect(cards.find((c) => c.serialNumber === "u")?.status).toBe("offline");
     expect(summarizeCards(cards)).toMatchObject({ charging: 1, offline: 1 });
+  });
+
+  test("laden flag passes through to cards and map dots", () => {
+    const cards = buildCards({ l: { ...pose("l"), laden: true } }, [], undefined);
+    expect(cards[0]?.pose?.laden).toBe(true);
+    expect(cards[0]?.status).toBe("idle");
   });
 
   test("pruneStalePoses drops silent and never-seen robots", () => {

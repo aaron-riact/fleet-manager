@@ -8,6 +8,8 @@ export interface RobotDot {
   y: number;
   /** World heading in radians; the tick is omitted when unknown. */
   theta?: number;
+  /** Carrying a load; drawn as a dashed ring around the dot. */
+  laden?: boolean;
 }
 
 export interface OrderWait {
@@ -223,6 +225,18 @@ export function FleetMap({
                 <animate attributeName="r" values="0.3;0.9" dur="2s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.5;0" dur="2s" repeatCount="indefinite" />
               </circle>
+              {r.laden && (
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={0.45}
+                  fill="none"
+                  stroke="#e6edf3"
+                  strokeWidth={0.05}
+                  strokeDasharray="0.12 0.1"
+                  opacity={0.9}
+                />
+              )}
               {tick && (
                 <line
                   x1={p.x}

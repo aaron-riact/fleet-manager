@@ -11,6 +11,7 @@ export interface LivePose {
   y: number;
   theta: number;
   driving: boolean;
+  laden: boolean;
   charging: boolean;
   batteryCharge?: number;
   batteryVoltage?: number;

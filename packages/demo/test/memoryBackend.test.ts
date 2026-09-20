@@ -31,6 +31,7 @@ describe("createMemoryBackend", () => {
       y: 2,
       theta: 0,
       driving: false,
+      laden: false,
       charging: false,
       positionInitialized: true,
       eStop: false,

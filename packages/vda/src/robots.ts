@@ -18,6 +18,8 @@ export interface RobotPose {
   /** Any active e-stop (AUTOACK, MANUAL, or REMOTE — never the NONE value). */
   eStop: boolean;
   fieldViolation: boolean;
+  /** True while the AGV reports any load on board (generic laden flag). */
+  laden: boolean;
 }
 
 interface TopicAccess {
@@ -31,6 +33,7 @@ interface TopicAccess {
       driving?: boolean;
       batteryState?: { charging?: boolean; batteryCharge?: number; batteryVoltage?: number };
       safetyState?: { eStop?: string; fieldViolation?: boolean };
+      loads?: unknown[];
     }) => void,
   ): Promise<string>;
 }
@@ -146,6 +149,7 @@ export async function watchRobots(
       positionInitialized: object.agvPosition?.positionInitialized ?? false,
       eStop: object.safetyState?.eStop !== undefined && object.safetyState.eStop !== "NONE",
       fieldViolation: object.safetyState?.fieldViolation ?? false,
+      laden: Array.isArray(object.loads) && object.loads.length > 0,
     });
   });
   void id;

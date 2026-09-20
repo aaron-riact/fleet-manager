@@ -50,6 +50,7 @@ describe("watchRobots", () => {
         expect(typeof pose!.positionInitialized).toBe("boolean");
         expect(typeof pose!.eStop).toBe("boolean");
         expect(typeof pose!.fieldViolation).toBe("boolean");
+        expect(typeof pose!.laden).toBe("boolean");
       } finally {
         stop();
       }
@@ -137,6 +138,36 @@ describe("watchRobots", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ manufacturer: "MakerA", serialNumber: "raw-1" });
     expect(seen[0]!.body).toBe(body);
+  });
+
+  test("laden follows the reported loads array", async () => {
+    const stubFor = (loads: unknown) => ({
+      subscribeTopic: async (_t: unknown, _s: unknown, handler: (o: unknown) => void) => {
+        handler({ serialNumber: "load-1", loads });
+        return "sub-l";
+      },
+      unsubscribe: async () => {},
+    });
+    const seen: RobotPose[] = [];
+    const stopLaden = await watchRobots(
+      stubFor([{ loadType: "pallet" }]) as unknown as MasterController,
+      undefined,
+      (p) => void seen.push(p),
+    );
+    stopLaden();
+    const stopEmpty = await watchRobots(
+      stubFor([]) as unknown as MasterController,
+      undefined,
+      (p) => void seen.push(p),
+    );
+    stopEmpty();
+    const stopMissing = await watchRobots(
+      stubFor(undefined) as unknown as MasterController,
+      undefined,
+      (p) => void seen.push(p),
+    );
+    stopMissing();
+    expect(seen.map((p) => p.laden)).toEqual([true, false, false]);
   });
 
   test("wildcard manufacturer sees every maker", async () => {
