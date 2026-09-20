@@ -61,8 +61,15 @@ export function OrderComposer({
     const from = pickup?.pickPose;
     const to = drop?.dropPose ?? drop?.pickPose;
     if (!from || !to) return undefined;
-    return buildTour(site.nodes, site.links, from, to);
-  }, [stations, pickupId, dropId, site]);
+    const pose = poses[robot];
+    return buildTour(
+      site.nodes,
+      site.links,
+      { ...from, entry: pickup?.entry },
+      { ...to, entry: drop?.entry },
+      pose && Number.isFinite(pose.x) && Number.isFinite(pose.y) ? { x: pose.x, y: pose.y } : undefined,
+    );
+  }, [stations, pickupId, dropId, site, poses, robot]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();

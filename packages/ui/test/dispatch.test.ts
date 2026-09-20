@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildTour, findPath, nearestNode } from "../src/dispatch.js";
+import { buildTour } from "../src/dispatch.js";
 
 const nodes = [
   { id: "a", x: 0, y: 0 },
@@ -11,21 +11,8 @@ const links = [
   { source: "b", destination: "c" },
 ];
 
-describe("dispatch helpers", () => {
-  test("nearest node by squared distance", () => {
-    expect(nearestNode(nodes, { x: 1, y: 1 })?.id).toBe("a");
-    expect(nearestNode(nodes, { x: 9, y: 7 })?.id).toBe("c");
-    expect(nearestNode([], { x: 0, y: 0 })).toBeUndefined();
-  });
-
-  test("paths respect direction", () => {
-    expect(findPath(links, "a", "c")).toEqual(["a", "b", "c"]);
-    expect(findPath(links, "c", "a")).toBeUndefined();
-    expect(findPath(links, "b", "b")).toEqual(["b"]);
-    expect(findPath(links, "a", "ghost")).toBeUndefined();
-  });
-
-  test("station tours resolve through the graph", () => {
+describe("station tours stay on the network", () => {
+  test("node path between geometric endpoints", () => {
     expect(buildTour(nodes, links, { x: 0, y: 0 }, { x: 10, y: 8 })?.map((w) => w.nodeId)).toEqual([
       "a",
       "b",
@@ -34,5 +21,26 @@ describe("dispatch helpers", () => {
     expect(buildTour(nodes, links, { x: 0, y: 0 }, { x: 0, y: 0 })?.map((w) => w.nodeId)).toEqual(["a"]);
     expect(buildTour([], links, { x: 0, y: 0 }, { x: 1, y: 1 })).toBeUndefined();
     expect(buildTour(nodes, links, { x: 10, y: 8 }, { x: 0, y: 0 })).toBeUndefined();
+  });
+
+  test("authored entries beat geometric nearest", () => {
+    // drop pose sits on "c", but the map hangs this station off "a"
+    expect(
+      buildTour(nodes, links, { x: 0, y: 0 }, { x: 10, y: 8, entry: "a" })?.map((w) => w.nodeId),
+    ).toEqual(["a"]);
+    // unknown entry ids fall back to geometry instead of failing
+    expect(
+      buildTour(nodes, links, { x: 0, y: 0 }, { x: 10, y: 8, entry: "ghost" })?.map((w) => w.nodeId),
+    ).toEqual(["a", "b", "c"]);
+  });
+
+  test("a robot fix starts the tour at the robot, routed on-graph", () => {
+    // robot near "b" touring a->b: reaches back along the network (b, a,
+    // b), so the only free-drive leg is the short approach hop
+    expect(
+      buildTour(nodes, links, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 9, y: 0 })?.map((w) => w.nodeId),
+    ).toEqual(["b", "a", "b"]);
+    // a robot on a one-way dead end cannot route anywhere: honest undefined
+    expect(buildTour(nodes, links, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 })).toBeUndefined();
   });
 });
