@@ -240,9 +240,9 @@ export function FleetMap({
                   y1={p.y.toFixed(3)}
                   x2={e.x.toFixed(3)}
                   y2={e.y.toFixed(3)}
-                  stroke="#8b949e"
-                  strokeWidth={0.04}
-                  opacity={0.7}
+                  stroke="#e6edf3"
+                  strokeWidth={0.05}
+                  opacity={0.8}
                 />
               )}
               <rect
@@ -250,12 +250,29 @@ export function FleetMap({
                 y={(p.y - s).toFixed(3)}
                 width={(s * 2).toFixed(3)}
                 height={(s * 2).toFixed(3)}
-                fill="transparent"
-                stroke="#8b949e"
-                strokeWidth={0.05}
-                strokeDasharray="0.15 0.1"
+                fill="rgba(7, 11, 18, 0.45)"
+                stroke="#0b0e14"
+                strokeWidth={0.13}
               />
-              <text x={p.x} y={(p.y + s + 0.3).toFixed(3)} textAnchor="middle" fontSize={0.28} fill="#8b949e">
+              <rect
+                x={(p.x - s).toFixed(3)}
+                y={(p.y - s).toFixed(3)}
+                width={(s * 2).toFixed(3)}
+                height={(s * 2).toFixed(3)}
+                fill="none"
+                stroke="#e6edf3"
+                strokeWidth={0.05}
+              />
+              <text
+                x={p.x}
+                y={(p.y + s + 0.3).toFixed(3)}
+                textAnchor="middle"
+                fontSize={0.28}
+                fill="#e6edf3"
+                stroke="#0b0e14"
+                strokeWidth={0.06}
+                style={{ paintOrder: "stroke" }}
+              >
                 {spot.id}
               </text>
             </g>
@@ -275,6 +292,39 @@ export function FleetMap({
                 return stationPoses(location).map(({ kind, pose }) => {
                   const p = toSvg(pose.x, pose.y, bounds);
                   const s = 0.28;
+                  // Pickups point where the robot should look: the pose
+                  // theta rotated into SVG space. Drops stay diamonds.
+                  // Both get a dark halo copy underneath so zone colors
+                  // read on bright imagery.
+                  const pickAngle =
+                    kind === "pick" && pose.theta !== undefined
+                      ? ((-pose.theta * 180) / Math.PI).toFixed(1)
+                      : undefined;
+                  const diamond = `${p.x},${(p.y - s).toFixed(3)} ${(p.x + s).toFixed(3)},${p.y} ${p.x},${(p.y + s).toFixed(3)} ${(p.x - s).toFixed(3)},${p.y}`;
+                  const arrow = `${(p.x + s).toFixed(3)},${p.y} ${(p.x - s * 0.7).toFixed(3)},${(p.y - s * 0.7).toFixed(3)} ${(p.x - s * 0.7).toFixed(3)},${(p.y + s * 0.7).toFixed(3)}`;
+                  const marker = (
+                    <g>
+                      <polygon
+                        points={pickAngle !== undefined ? arrow : diamond}
+                        transform={
+                          pickAngle !== undefined ? `rotate(${pickAngle} ${p.x} ${p.y})` : undefined
+                        }
+                        fill="none"
+                        stroke="#0b0e14"
+                        strokeWidth={0.14}
+                        opacity={0.9}
+                      />
+                      <polygon
+                        points={pickAngle !== undefined ? arrow : diamond}
+                        transform={
+                          pickAngle !== undefined ? `rotate(${pickAngle} ${p.x} ${p.y})` : undefined
+                        }
+                        fill={pickAngle !== undefined ? `${color}33` : "transparent"}
+                        stroke={color}
+                        strokeWidth={0.06}
+                      />
+                    </g>
+                  );
                   return (
                     <g key={`${location.id}-${kind}`} id={`loc-${location.id}-${kind}`}>
                       {entrySvg && kind === "drop" && (
@@ -288,18 +338,16 @@ export function FleetMap({
                           opacity={0.7}
                         />
                       )}
-                      <polygon
-                        points={`${p.x},${(p.y - s).toFixed(3)} ${(p.x + s).toFixed(3)},${p.y} ${p.x},${(p.y + s).toFixed(3)} ${(p.x - s).toFixed(3)},${p.y}`}
-                        fill="transparent"
-                        stroke={color}
-                        strokeWidth={0.06}
-                      />
+                      {marker}
                       <text
                         x={p.x}
                         y={(p.y + s + 0.35).toFixed(3)}
                         textAnchor="middle"
                         fontSize={0.28}
                         fill={color}
+                        stroke="#0b0e14"
+                        strokeWidth={0.06}
+                        style={{ paintOrder: "stroke" }}
                       >
                         {location.name ?? location.id}
                       </text>
