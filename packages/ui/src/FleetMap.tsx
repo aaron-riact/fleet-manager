@@ -1,11 +1,13 @@
 import React, { useMemo } from "react";
 import type { LockSnapshot, ParkingSpot, Site } from "@fleet-manager/core";
-import { boundsOf, groupByZone, indexNodes, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map";
+import { boundsOf, groupByZone, headingVector, indexNodes, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map";
 
 export interface RobotDot {
   serialNumber: string;
   x: number;
   y: number;
+  /** World heading in radians; the tick is omitted when unknown. */
+  theta?: number;
 }
 
 export interface OrderWait {
@@ -212,9 +214,26 @@ export function FleetMap({
         {robots.map((r) => {
           if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) return null;
           const p = toSvg(r.x, r.y, bounds);
+          const tick = r.theta !== undefined && Number.isFinite(r.theta) ? headingVector(r.theta) : undefined;
+          const tickLen = 0.55;
           return (
             <g key={r.serialNumber} id={`robot-${r.serialNumber}`}>
               <circle cx={p.x} cy={p.y} r={0.3} fill="#2f81f7" opacity={0.85} />
+              <circle cx={p.x} cy={p.y} r={0.3} fill="none" stroke="#2f81f7" strokeWidth={0.05} opacity={0.5}>
+                <animate attributeName="r" values="0.3;0.9" dur="2s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.5;0" dur="2s" repeatCount="indefinite" />
+              </circle>
+              {tick && (
+                <line
+                  x1={p.x}
+                  y1={p.y}
+                  x2={(p.x + tick.dx * tickLen).toFixed(3)}
+                  y2={(p.y + tick.dy * tickLen).toFixed(3)}
+                  stroke="#e6edf3"
+                  strokeWidth={0.06}
+                  opacity={0.9}
+                />
+              )}
               <text x={p.x} y={p.y + 0.75} textAnchor="middle" fontSize={0.3} fill="#e6edf3">
                 {r.serialNumber}
               </text>

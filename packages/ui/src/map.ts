@@ -56,6 +56,14 @@ export function toSvg(x: number, y: number, bounds: Bounds): { x: number; y: num
   return { x: x - bounds.minX, y: bounds.maxY - y };
 }
 
+/**
+ * SVG-space unit vector for a world heading (radians, CCW in y-up
+ * meters). The y component flips with the projection. Pure, tested.
+ */
+export function headingVector(theta: number): { dx: number; dy: number } {
+  return { dx: Math.cos(theta), dy: -Math.sin(theta) };
+}
+
 /** viewBox string with padding, for `<svg viewBox>`. */
 export function viewBoxFor(bounds: Bounds, pad = 1): string {
   const w = bounds.maxX - bounds.minX;

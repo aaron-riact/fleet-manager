@@ -274,6 +274,7 @@ export function Shell({
                   serialNumber: p.serialNumber,
                   x: p.x,
                   y: p.y,
+                  theta: p.theta,
                 }))}
               />
             </div>

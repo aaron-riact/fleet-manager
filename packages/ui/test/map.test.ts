@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   boundsOf,
   groupByZone,
+  headingVector,
   indexNodes,
   stationPoses,
   toSvg,
@@ -27,6 +28,18 @@ describe("map projection", () => {
 
   test("node index", () => {
     expect(indexNodes(nodes).get("b")).toEqual({ id: "b", x: 10, y: 8 });
+  });
+
+  test("heading vectors point along world headings in SVG space", () => {
+    const unit = (v: { dx: number; dy: number }) => Math.hypot(v.dx, v.dy);
+    // east stays east; north (+90° CCW in y-up meters) points up-screen
+    const east = headingVector(0);
+    expect(east.dx).toBeCloseTo(1);
+    expect(east.dy).toBeCloseTo(0);
+    const north = headingVector(Math.PI / 2);
+    expect(north.dx).toBeCloseTo(0);
+    expect(north.dy).toBeCloseTo(-1);
+    for (const theta of [0, 0.7, Math.PI, -2.1]) expect(unit(headingVector(theta))).toBeCloseTo(1);
   });
 
   test("zone colors are deterministic and fall back gracefully", () => {
