@@ -7,6 +7,8 @@ export type { FleetFilter, RobotCardModel } from "./RobotCards.js";
 export { TaskHistory, outcomeColor, selectHistory } from "./TaskHistory.js";
 export type { HistoryFilter } from "./TaskHistory.js";
 export { TaskBoard } from "./TaskBoard.js";
+export { DemandBoard, zoneRows } from "./DemandBoard.js";
+export type { ZoneRow } from "./DemandBoard.js";
 export { ToastProvider, toastReducer, useToast } from "./Toast.js";
 export type { Toast, ToastAction, ToastKind } from "./Toast.js";
 export { ConfirmProvider, useConfirm } from "./Confirm.js";

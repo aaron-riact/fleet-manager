@@ -9,6 +9,7 @@ import { RobotCards, StatusStrip, buildCards, filterCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { TaskBoard } from "./TaskBoard";
+import { DemandBoard } from "./DemandBoard";
 import { ToastProvider, useFailedHistoryToasts, useToast } from "./Toast";
 import { ConfirmProvider, useConfirm } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
@@ -303,6 +304,14 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
                 <RobotCards cards={visibleCards} backend={backend} siteName={site?.name} />
               </section>
               <TaskHistory history={history} />
+              {(site.locations ?? []).length > 0 && (
+                <DemandBoard
+                  siteName={site.name}
+                  backend={backend}
+                  locations={site.locations ?? []}
+                  nodes={site.nodes}
+                />
+              )}
               <TaskBoard siteName={site.name} backend={backend} nodes={site.nodes} />
             </div>
           </div>

@@ -39,6 +39,42 @@ const select: React.CSSProperties = {
   fontSize: "0.8rem",
 };
 
+/** Pickup select plus attach button for a requested task. */
+function AttachPickup({
+  nodes,
+  busy,
+  onAttach,
+}: {
+  nodes: MapNode[];
+  busy: boolean;
+  onAttach: (pickup: string) => void;
+}) {
+  const [pickup, setPickup] = useState(nodes[0]?.id ?? "");
+  return (
+    <span style={{ display: "inline-flex", gap: "0.3rem", alignItems: "center", marginLeft: "auto" }}>
+      <select
+        aria-label="Pickup node"
+        value={pickup}
+        onChange={(e) => setPickup(e.target.value)}
+        style={{ padding: "0.3rem 0.4rem", borderRadius: 8, border: `1px solid ${theme.border}`, background: theme.bg, color: "inherit", fontSize: "0.75rem" }}
+      >
+        {nodes.map((n) => (
+          <option key={n.id} value={n.id}>
+            {n.id}
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={() => pickup && onAttach(pickup)}
+        disabled={busy || !pickup}
+        style={{ padding: "0.3rem 0.7rem", borderRadius: 999, border: "none", background: `linear-gradient(180deg, #3f8cff, ${theme.accent})`, color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.75rem" }}
+      >
+        Attach
+      </button>
+    </span>
+  );
+}
+
 /** Pickup→dropoff jobs: submit against graph nodes, watch the queue. */
 export function TaskBoard({
   siteName,
@@ -95,6 +131,19 @@ export function TaskBoard({
     }
   }
 
+  async function attach(taskId: string, pickup: string) {
+    setBusy(true);
+    try {
+      await backend.attachPickup(siteName, taskId, { pickup });
+      toast.show({ kind: "ok", message: `Task ${taskId} queued from ${pickup}` });
+      await refresh();
+    } catch (e) {
+      toast.show({ kind: "bad", message: e instanceof Error ? e.message : "attach failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section>
       <h2 style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: theme.textFaint, margin: "0 0 0.5rem" }}>
@@ -139,15 +188,22 @@ export function TaskBoard({
       {tasks.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginTop: "0.5rem" }}>
           {tasks.map((t) => (
-            <div key={t.id} style={{ ...cardStyle, display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+            <div key={t.id} style={{ ...cardStyle, display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", flexWrap: "wrap" }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: taskColor(t.status), flexShrink: 0 }} />
               <span style={{ fontFamily: theme.mono }}>
-                {t.pickup} → {t.dropoff}
+                {t.pickup ?? "?"} → {t.dropoff}
               </span>
               <span style={{ color: theme.textDim }}>{t.status}</span>
               {t.assignee && <span style={{ color: theme.textFaint, fontSize: "0.72rem" }}>{t.assignee}</span>}
               {t.reason && <span style={{ color: theme.bad, fontSize: "0.72rem" }}>{t.reason}</span>}
-              {t.status === "queued" && (
+              {t.status === "requested" && (
+                <AttachPickup
+                  nodes={nodes}
+                  busy={busy}
+                  onAttach={(pickup) => void attach(t.id, pickup)}
+                />
+              )}
+              {(t.status === "queued" || t.status === "requested") && (
                 <button
                   onClick={() => void withdraw(t.id)}
                   style={{

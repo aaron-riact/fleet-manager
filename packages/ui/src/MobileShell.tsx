@@ -10,6 +10,7 @@ import { RobotCards, StatusStrip, buildCards, filterCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { TaskBoard } from "./TaskBoard";
+import { DemandBoard } from "./DemandBoard";
 import type { Backend } from "./backend";
 import type { LoginSession } from "./authClient";
 
@@ -130,6 +131,14 @@ function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange }
         )}
         {site && tab === "tasks" && (
           <>
+            {(site.locations ?? []).length > 0 && (
+              <DemandBoard
+                siteName={site.name}
+                backend={backend}
+                locations={site.locations ?? []}
+                nodes={site.nodes}
+              />
+            )}
             <TaskBoard siteName={site.name} backend={backend} nodes={site.nodes} />
             <TaskHistory history={history} />
           </>
