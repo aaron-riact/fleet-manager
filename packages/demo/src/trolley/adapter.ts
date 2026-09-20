@@ -130,6 +130,9 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
       actionScopes: "node",
       actionParameterConstraints: {
         station: (v) => str(v) !== undefined,
+        stanceX: (v) => num(v) !== undefined,
+        stanceY: (v) => num(v) !== undefined,
+        stanceTheta: (v) => num(v) !== undefined,
         dockX: (v) => num(v) !== undefined,
         dockY: (v) => num(v) !== undefined,
         duration: (v) => v === undefined || num(v) !== undefined,
@@ -167,11 +170,12 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
       actionScopes: "node",
       actionParameterConstraints: {
         station: (v) => str(v) !== undefined,
+        stanceX: (v) => num(v) !== undefined,
+        stanceY: (v) => num(v) !== undefined,
+        stanceTheta: (v) => num(v) !== undefined,
         dockX: (v) => num(v) !== undefined,
         dockY: (v) => num(v) !== undefined,
-        dockTheta: (v) => v === undefined || num(v) !== undefined,
-        turn: (v) => v === undefined || v === "cw" || v === "ccw",
-        exitDist: (v) => v === undefined || (num(v) !== undefined && (v as number) > 0),
+        dockTheta: (v) => num(v) !== undefined,
         duration: (v) => v === undefined || num(v) !== undefined,
       },
       actionExecutable: (action) => {
@@ -223,8 +227,11 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
     this.carried = undefined;
     if (load === undefined) return { loads: [] };
     if (station !== undefined) {
+      // The trolley keeps the heading it was released under (the driver's
+      // last pose — the internal position tracks the maneuver, see publish).
+      const theta = this.vehicleState.position.theta;
       try {
-        this.world.place(station, load);
+        this.world.place(station, load, theta);
       } catch {
         // Occupied mid-maneuver (shouldn't happen under node locks): keep
         // the load rather than lose a trolley.
@@ -240,26 +247,32 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
   private startDriver(actionId: string, type: string, p: Record<string, unknown>): void {
     this.stopDriver(actionId);
     const start = this.vehicleState.position;
+    const stanceX = num(p["stanceX"])!;
+    const stanceY = num(p["stanceY"])!;
+    const stanceTheta = num(p["stanceTheta"])!;
     const dockX = num(p["dockX"])!;
     const dockY = num(p["dockY"])!;
+    // Turn legs that are already aligned complete instantly at execution.
     const legs: Leg[] = [];
     if (type === PICK_TROLLEY) {
-      // Drive under the trolley we are facing.
-      const face = Math.atan2(dockY - start.y, dockX - start.x);
-      if (Math.abs(shortTurn(start.theta, face)) > 0.02) legs.push({ kind: "turn", to: face });
+      // To the triangle, face where it points, to the trolley, match its
+      // angle — then the pick engages and the tour drives on from there.
+      const trolleyTheta = this.world.trolleyPose(str(p["station"]) ?? "")?.theta;
+      legs.push({ kind: "drive", x: stanceX, y: stanceY });
+      legs.push({ kind: "turn", to: stanceTheta });
       legs.push({ kind: "drive", x: dockX, y: dockY });
+      if (trolleyTheta !== undefined) legs.push({ kind: "turn", to: trolleyTheta });
     } else {
-      // Face the dock, drive in, detach (at finish), turn away, exit clear.
-      const dockTheta = num(p["dockTheta"]) ?? Math.atan2(dockY - start.y, dockX - start.x);
-      if (Math.abs(shortTurn(start.theta, dockTheta)) > 0.02) legs.push({ kind: "turn", to: dockTheta });
+      // To the slot, release, face the triangle, exit 1m toward it — then
+      // the route drives on from there.
+      const dockTheta = num(p["dockTheta"])!;
+      legs.push({ kind: "turn", to: dockTheta });
       legs.push({ kind: "drive", x: dockX, y: dockY });
-      const away = dockTheta + (p["turn"] === "cw" ? -Math.PI / 2 : Math.PI / 2);
-      legs.push({ kind: "turn", to: away });
-      const exitDist = num(p["exitDist"]) ?? 1;
+      legs.push({ kind: "turn", to: stanceTheta });
       legs.push({
         kind: "drive",
-        x: dockX + Math.cos(away) * exitDist,
-        y: dockY + Math.sin(away) * exitDist,
+        x: dockX + Math.cos(stanceTheta) * 1,
+        y: dockY + Math.sin(stanceTheta) * 1,
       });
     }
     this.startDriving(0, 0, true);
@@ -306,6 +319,14 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
       { vx, vy },
       true,
     );
+    // Mirror into the adapter's own position. The controller state above
+    // is what the map shows, but traversal resumes from the adapter's
+    // internal pose — without this the next edge starts at the stale
+    // arrival node and the robot visibly teleports back to it.
+    const internal = this.vehicleState as unknown as { position: { x: number; y: number; theta: number } };
+    internal.position.x = x;
+    internal.position.y = y;
+    internal.position.theta = theta;
   }
 
   private stopDriver(actionId: string): void {

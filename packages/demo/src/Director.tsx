@@ -352,12 +352,12 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
       const dock =
         stationDock(site as Site, station, "pickup") ?? stationDock(site as Site, station, "dropoff");
       if (!trolley || !dock) continue;
-      out.push({ id: `trolley-${trolley}`, x: dock.x, y: dock.y, label: trolley });
+      out.push({ id: `trolley-${trolley}`, x: dock.x, y: dock.y, label: trolley, theta: dock.theta });
     }
-    for (const { trolleyId, carrier } of world.aboard()) {
+    for (const { trolleyId, carrier, theta } of world.aboard()) {
       const pose = poses[carrier];
       if (!pose || !Number.isFinite(pose.x) || !Number.isFinite(pose.y)) continue;
-      out.push({ id: `trolley-${trolleyId}`, x: pose.x, y: pose.y, label: trolleyId });
+      out.push({ id: `trolley-${trolleyId}`, x: pose.x, y: pose.y, label: trolleyId, theta });
     }
     return out;
   }, [poses, site]);
@@ -374,9 +374,14 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
     (async () => {
       const spots = site.parking ?? [];
       // Sparse initial layout (see DEFAULT_TROLLEY_SEED); the component
-      // remounts per site, so each site gets a fresh world.
+      // remounts per site, so each site gets a fresh world. Seeded angle
+      // is the dock facing: the long axis the robot must match.
       const world = new TrolleyWorld();
-      world.seedDefaults(DEFAULT_TROLLEY_SEED[siteName] ?? []);
+      const demoSite = site as Site;
+      for (const station of DEFAULT_TROLLEY_SEED[siteName] ?? []) {
+        const dock = stationDock(demoSite, station, "pickup") ?? stationDock(demoSite, station, "dropoff");
+        world.seed(station, `trolley-${station}`, dock?.theta ?? 0);
+      }
       worldRef.current = world;
       const fleet = await bootFleet({
         interfaceName: site.name,

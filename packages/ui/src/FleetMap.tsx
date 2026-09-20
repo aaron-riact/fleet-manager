@@ -15,16 +15,22 @@ export interface RobotDot {
 }
 
 /**
- * Host-owned point annotations (trolleys, pallets, doors): the map draws
- * them, the host owns what they mean. Squares so they never read as robots.
+ * Host-owned annotations (trolleys, pallets, doors): the map draws them,
+ * the host owns what they mean. Rectangles so they never read as robots;
+ * without a heading they fall back to squares.
  */
 export interface MapMarker {
   id: string;
   x: number;
   y: number;
   label?: string;
-  /** Fill for the square; defaults to amber. */
+  /** Fill; defaults to amber. */
   color?: string;
+  /** Long-axis heading in world radians; rotates the rectangle. */
+  theta?: number;
+  /** Meters; default 1.2 long, 0.8 wide. */
+  length?: number;
+  width?: number;
 }
 
 export interface OrderWait {
@@ -480,13 +486,24 @@ export function FleetMap({
           if (!Number.isFinite(m.x) || !Number.isFinite(m.y)) return null;
           const p = toSvg(m.x, m.y, bounds);
           const color = m.color ?? "#f0b429";
+          const length = m.length ?? 1.2;
+          const width = m.width ?? 0.8;
+          // SVG-space rotation for the world heading (y flips, as in ticks).
+          const tilt =
+            m.theta !== undefined && Number.isFinite(m.theta)
+              ? (() => {
+                  const hv = headingVector(m.theta);
+                  return (Math.atan2(hv.dy, hv.dx) * 180) / Math.PI;
+                })()
+              : 0;
           return (
             <g key={m.id} id={`marker-${m.id}`}>
               <rect
-                x={(p.x - 0.25).toFixed(3)}
-                y={(p.y - 0.25).toFixed(3)}
-                width={0.5}
-                height={0.5}
+                x={(p.x - length / 2).toFixed(3)}
+                y={(p.y - width / 2).toFixed(3)}
+                width={length}
+                height={width}
+                transform={`rotate(${tilt.toFixed(1)} ${p.x.toFixed(3)} ${p.y.toFixed(3)})`}
                 fill={color}
                 fillOpacity={0.25}
                 stroke={color}
