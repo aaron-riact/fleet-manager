@@ -354,10 +354,19 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
       if (!trolley || !dock) continue;
       out.push({ id: `trolley-${trolley}`, x: dock.x, y: dock.y, label: trolley, theta: dock.theta });
     }
-    for (const { trolleyId, carrier, theta } of world.aboard()) {
+    for (const { trolleyId, carrier } of world.aboard()) {
       const pose = poses[carrier];
       if (!pose || !Number.isFinite(pose.x) || !Number.isFinite(pose.y)) continue;
-      out.push({ id: `trolley-${trolleyId}`, x: pose.x, y: pose.y, label: trolleyId, theta });
+      // Aboard, the trolley rides the robot: same fix, same heading, so
+      // the rectangle visibly turns with it (and its orientation can be
+      // judged while moving, not just while parked).
+      out.push({
+        id: `trolley-${trolleyId}`,
+        x: pose.x,
+        y: pose.y,
+        label: trolleyId,
+        ...(Number.isFinite(pose.theta) ? { theta: pose.theta } : {}),
+      });
     }
     return out;
   }, [poses, site]);

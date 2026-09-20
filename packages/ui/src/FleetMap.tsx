@@ -225,9 +225,9 @@ export function FleetMap({
           const state = nodeState.get(node.id);
           const held = (state?.owners.length ?? 0) > 0;
           const contested = !held && (state?.waiters.length ?? 0) > 0;
-          // Translucent dark fill: the light outline must read against
-          // bright map imagery, while the image still shows through.
-          // The center dot marks the exact waypoint fix.
+          // Light translucent fill: the outline must read against bright
+          // map imagery without hiding it. The center dot marks the exact
+          // waypoint fix.
           const dot = held ? "#f0883e" : contested ? "#e3b341" : "#e6edf3";
           return (
             <g key={node.id} id={`node-${node.id}`}>
@@ -237,13 +237,14 @@ export function FleetMap({
                   cx={p.x}
                   cy={p.y}
                   r={node.radius ?? 0.25}
-                  fill={held ? "#f0883e22" : "rgba(7, 11, 18, 0.45)"}
+                  fill={held ? "#f0883e22" : "rgba(7, 11, 18, 0.2)"}
                   stroke={held ? "#f0883e" : contested ? "#e3b341" : "#e6edf3"}
-                  strokeWidth={0.06}
+                  strokeWidth={0.05}
+                  strokeOpacity={held || contested ? undefined : 0.55}
                   strokeDasharray={contested ? "0.15 0.1" : undefined}
                 />
               )}
-              <circle cx={p.x} cy={p.y} r={0.07} fill={dot} stroke="#0b0e14" strokeWidth={0.03} />
+              <circle cx={p.x} cy={p.y} r={0.14} fill={dot} stroke="#0b0e14" strokeWidth={0.03} />
             </g>
           );
         })}
@@ -321,10 +322,22 @@ export function FleetMap({
                 const entry = location.entry ? byId.get(location.entry) : undefined;
                 const entrySvg = entry ? toSvg(entry.x, entry.y, bounds) : undefined;
                 // pick and drop can sit apart; one marker each so the map
-                // shows where a robot is actually sent
-                return stationPoses(location).map(({ kind, pose }) => {
+                // shows where a robot is actually sent — but a single
+                // shared label between them instead of one per marker.
+                const posed = stationPoses(location);
+                const s = 0.28;
+                const labelAt = (() => {
+                  const pts = posed.map(({ pose }) => toSvg(pose.x, pose.y, bounds));
+                  const mid = pts.reduce(
+                    (acc, p) => ({ x: acc.x + p.x / pts.length, y: acc.y + p.y / pts.length }),
+                    { x: 0, y: 0 },
+                  );
+                  return mid;
+                })();
+                return (
+                  <g key={location.id} id={`loc-${location.id}`}>
+                    {posed.map(({ kind, pose }) => {
                   const p = toSvg(pose.x, pose.y, bounds);
-                  const s = 0.28;
                   // Pickups point where the robot should look: the pose
                   // theta rotated into SVG space. Drops stay diamonds.
                   // Both get a dark halo copy underneath so zone colors
@@ -358,36 +371,38 @@ export function FleetMap({
                       />
                     </g>
                   );
-                  return (
-                    <g key={`${location.id}-${kind}`} id={`loc-${location.id}-${kind}`}>
-                      {entrySvg && kind === "drop" && (
-                        <line
-                          x1={p.x.toFixed(3)}
-                          y1={p.y.toFixed(3)}
-                          x2={entrySvg.x.toFixed(3)}
-                          y2={entrySvg.y.toFixed(3)}
-                          stroke={color}
-                          strokeWidth={0.04}
-                          opacity={0.7}
-                        />
-                      )}
-                      {marker}
-                      <text
-                        x={p.x}
-                        y={(p.y + s + 0.35).toFixed(3)}
-                        textAnchor="middle"
-                        fontSize={0.28}
-                        fill={color}
-                        stroke="#0b0e14"
-                        strokeWidth={0.06}
-                        style={{ paintOrder: "stroke" }}
-                      >
-                        {location.name ?? location.id}
-                      </text>
-                    </g>
-                  );
-                })}
-              )}
+                      return (
+                        <g key={`${location.id}-${kind}`} id={`loc-${location.id}-${kind}`}>
+                          {entrySvg && kind === "drop" && (
+                            <line
+                              x1={p.x.toFixed(3)}
+                              y1={p.y.toFixed(3)}
+                              x2={entrySvg.x.toFixed(3)}
+                              y2={entrySvg.y.toFixed(3)}
+                              stroke={color}
+                              strokeWidth={0.04}
+                              opacity={0.7}
+                            />
+                          )}
+                          {marker}
+                        </g>
+                      );
+                    })}
+                    <text
+                      x={labelAt.x}
+                      y={(labelAt.y + s + 0.35).toFixed(3)}
+                      textAnchor="middle"
+                      fontSize={0.28}
+                      fill={color}
+                      stroke="#0b0e14"
+                      strokeWidth={0.06}
+                      style={{ paintOrder: "stroke" }}
+                    >
+                      {location.name ?? location.id}
+                    </text>
+                  </g>
+                );
+              })}
             </g>
           );
         })}
