@@ -1,5 +1,6 @@
 import { shortestPath } from "./plan.js";
 import { isFresh } from "./poses.js";
+import type { NodeActionAttachment } from "./actions.js";
 import type { DemandCounts } from "./demand.js";
 import type { Site } from "./site.js";
 
@@ -80,13 +81,21 @@ export interface TaskPose {
   seenAt: number;
 }
 
+/** One tour stop: a graph position plus optional opaque work attachments. */
+export interface PumpWaypoint {
+  nodeId: string;
+  x: number;
+  y: number;
+  actions?: NodeActionAttachment[];
+}
+
 export interface TaskPump {
   site: Site;
   fleet: {
     isBusy(serial: string): boolean;
     dispatch(
       agv: { manufacturer: string; serialNumber: string },
-      waypoints: Array<{ nodeId: string; x: number; y: number }>,
+      waypoints: PumpWaypoint[],
       opts?: { from?: { x: number; y: number } },
     ): Promise<string>;
   };
@@ -95,6 +104,13 @@ export interface TaskPump {
   /** Outstanding demand per zone — queued tasks serve highest demand first. */
   demands: DemandCounts;
   poseTtlMs: number;
+  /**
+   * Domain work to attach at the tour ends ("pickup" = first waypoint,
+   * "dropoff" = last). Absent means drive-only tours. The pump never
+   * interprets the returned attachments — they ride the order nodes to
+   * whichever adapter executes them.
+   */
+  attachments?: (nodeId: string, role: "pickup" | "dropoff") => NodeActionAttachment[];
 }
 
 /**
@@ -121,7 +137,7 @@ export function pumpSiteTasks(pump: TaskPump): void {
   }
 }
 
-function assignQueuedTasks({ site, fleet, poses, tasks, demands, poseTtlMs }: TaskPump): void {
+function assignQueuedTasks({ site, fleet, poses, tasks, demands, poseTtlMs, attachments }: TaskPump): void {
   const now = Date.now();
   const byId = new Map(site.nodes.map((n) => [n.id, n]));
   const queued = [...tasks.values()]
@@ -167,9 +183,18 @@ function assignQueuedTasks({ site, fleet, poses, tasks, demands, poseTtlMs }: Ta
     task.assignee = best.serial;
     const from = { x: best.pose.x, y: best.pose.y };
     // Path nodes come from the same graph just routed on — always known.
-    const waypoints = path.map((id) => {
+    // Work attachments ride the tour ends only; middle nodes stay
+    // drive-through. A single-node tour is both ends: pickup runs first.
+    const waypoints: PumpWaypoint[] = path.map((id, i) => {
       const n = byId.get(id)!;
-      return { nodeId: id, x: n.x, y: n.y };
+      const role = i === 0 ? "pickup" : i === path.length - 1 ? "dropoff" : undefined;
+      const actions = role !== undefined ? attachments?.(id, role) : undefined;
+      return {
+        nodeId: id,
+        x: n.x,
+        y: n.y,
+        ...(actions !== undefined && actions.length > 0 ? { actions } : {}),
+      };
     });
     fleet
       .dispatch({ manufacturer: best.manufacturer, serialNumber: best.serial }, waypoints, { from })

@@ -12,7 +12,7 @@ const waypoints = [
 
 describe("order building", () => {
   test("incremental order releases only the first node", () => {
-    const { order, sequenceOf } = buildIncrementalOrder("o1", waypoints);
+    const { order, sequenceOf } = buildIncrementalOrder("o1", waypoints, () => "act-1");
     expect(order.nodes.map((n) => [n.nodeId, n.sequenceId, n.released])).toEqual([
       ["a", 0, true],
       ["b", 2, false],
@@ -26,7 +26,7 @@ describe("order building", () => {
   });
 
   test("stitch releases granted nodes and covered edges", () => {
-    const { order } = buildIncrementalOrder("o1", waypoints);
+    const { order } = buildIncrementalOrder("o1", waypoints, () => "act-1");
     const update = stitchRelease(order, [0, 2], 1, 0) as unknown as {
       orderUpdateId: number;
       nodes: Array<{ sequenceId: number; released: boolean }>;
@@ -40,7 +40,7 @@ describe("order building", () => {
   });
 
   test("stitch prunes traversed nodes, keeping the base", () => {
-    const { order } = buildIncrementalOrder("o1", waypoints);
+    const { order } = buildIncrementalOrder("o1", waypoints, () => "act-1");
     const update = stitchRelease(order, [0, 2, 4], 2, 2) as unknown as {
       nodes: Array<{ sequenceId: number; released: boolean }>;
       edges: Array<{ sequenceId: number }>;
@@ -51,13 +51,57 @@ describe("order building", () => {
   });
 
   test("empty waypoints rejected", () => {
-    expect(() => buildIncrementalOrder("o", [])).toThrow(/at least one waypoint/);
+    expect(() => buildIncrementalOrder("o", [], () => "act-1")).toThrow(/at least one waypoint/);
+  });
+
+  test("waypoint attachments ride the node, ids minted, blocking types mapped", () => {
+    let n = 0;
+    const { order } = buildIncrementalOrder(
+      "o1",
+      [
+        {
+          nodeId: "a",
+          x: 0,
+          y: 0,
+          actions: [
+            {
+              actionType: "pickTrolley",
+              actionParameters: [{ key: "station", value: "dock-1" }],
+              blockingType: "HARD",
+            },
+          ],
+        },
+        { nodeId: "b", x: 5, y: 0 },
+      ],
+      () => `act-${++n}`,
+    );
+    expect(order.nodes[0]?.actions).toMatchObject([
+      { actionId: "act-1", actionType: "pickTrolley", blockingType: "HARD" },
+    ]);
+    expect(order.nodes[1]?.actions).toEqual([]);
+  });
+
+  test("unknown blocking type fails at build time, not mid-tour", () => {
+    expect(() =>
+      buildIncrementalOrder(
+        "o",
+        [
+          {
+            nodeId: "a",
+            x: 0,
+            y: 0,
+            actions: [{ actionType: "x", blockingType: "HARDER" as never }],
+          },
+        ],
+        () => "act-1",
+      ),
+    ).toThrow(/unknown blocking type/);
   });
 
   test("waypoints carry no heading", () => {
     // The adapter adopts each node's theta on arrival; a stamped theta: 0
     // snapped every robot to face east at every waypoint.
-    const { order } = buildIncrementalOrder("o1", waypoints);
+    const { order } = buildIncrementalOrder("o1", waypoints, () => "act-1");
     for (const node of order.nodes) {
       expect(node).not.toHaveProperty("theta");
       expect(node.nodePosition).not.toHaveProperty("theta");

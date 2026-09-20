@@ -1,12 +1,17 @@
 import { ActionStatus, BlockingType, MasterController } from "vda-5050-lib";
 import type { AgvId, Headerless, InstantActions, Order } from "vda-5050-lib";
 import { OFF_GRAPH_PREFIX } from "@fleet-manager/core";
-import type { FleetLocks, LockSnapshot, PathLocker } from "@fleet-manager/core";
+import type { FleetLocks, LockSnapshot, NodeActionAttachment, PathLocker } from "@fleet-manager/core";
 
 export interface FleetWaypoint {
   nodeId: string;
   x: number;
   y: number;
+  /**
+   * Opaque work for this stop (VDA-5050 node actions). Dispatch stamps
+   * actionIds and maps blocking types; the adapter alone interprets them.
+   */
+  actions?: NodeActionAttachment[];
 }
 
 /** Where a robot leaves the graph at the end of a tour. */
@@ -21,8 +26,16 @@ interface BuiltOrder {
   sequenceOf: Map<string, number>;
 }
 
-/** Build an incremental order: only the first node released. */
-export function buildIncrementalOrder(orderId: string, waypoints: FleetWaypoint[]): BuiltOrder {
+/**
+ * Build an incremental order: only the first node released.
+ * Attachments ride the nodes verbatim; actionIds are minted here so every
+ * action on the wire is unique no matter who produced the waypoints.
+ */
+export function buildIncrementalOrder(
+  orderId: string,
+  waypoints: FleetWaypoint[],
+  newActionId: () => string,
+): BuiltOrder {
   if (waypoints.length === 0) throw new Error("dispatch needs at least one waypoint");
   const sequenceOf = new Map<string, number>();
   const nodes = waypoints.map((w, i) => {
@@ -36,7 +49,18 @@ export function buildIncrementalOrder(orderId: string, waypoints: FleetWaypoint[
       // stamped theta would snap the robot to face it at every waypoint.
       // Omitting it keeps the travel heading continuous through the tour.
       nodePosition: { mapId: "local", x: w.x, y: w.y },
-      actions: [],
+      actions: (w.actions ?? []).map((a) => {
+        const blockingType =
+          a.blockingType === "HARD"
+            ? BlockingType.Hard
+            : a.blockingType === "SOFT"
+              ? BlockingType.Soft
+              : a.blockingType === "NONE"
+                ? BlockingType.None
+                : undefined;
+        if (blockingType === undefined) throw new Error(`unknown blocking type "${a.blockingType}"`);
+        return { actionId: newActionId(), ...a, blockingType };
+      }),
     };
   });
   const edges = waypoints.slice(1).map((w, i) => ({
@@ -298,7 +322,11 @@ export class Fleet {
     this.locks.lockerFor(agvId.serialNumber ?? "unknown").clearAllLocks();
   }
 
-  /** All-released multi-point order, no locking — approach legs and parking. */
+  /**
+   * All-released multi-point order, no locking — approach legs and parking.
+   * Work attachments never ride these legs: picks/drops happen at tour
+   * stops on the graph, never mid-approach or at a parking spot.
+   */
   private directOrder(agvId: AgvId, points: FleetWaypoint[]): Promise<void> {
     const order = {
       orderId: `fleet-direct-${dispatchCounter++}`,
@@ -341,7 +369,7 @@ export class Fleet {
   ): Promise<string> {
     const serial = agvId.serialNumber ?? "unknown";
     const orderId = `fleet-order-${dispatchCounter++}`;
-    const { order } = buildIncrementalOrder(orderId, waypoints);
+    const { order } = buildIncrementalOrder(orderId, waypoints, () => this.master.createUuid());
     const nodeIds = waypoints.map((w) => w.nodeId);
     const locker = this.locks.lockerFor(serial);
     // Robot-reported traversal; indexed by sequenceId, not node id (loop

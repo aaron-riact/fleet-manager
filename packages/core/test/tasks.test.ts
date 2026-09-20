@@ -88,6 +88,39 @@ describe("task input checks", () => {
 });
 
 describe("pumpSiteTasks", () => {
+  test("attachments ride the tour ends, middle nodes stay drive-through", async () => {
+    const seen: Array<[string, string]> = [];
+    const { base, calls, tasks } = setup({
+      poses: new Map([["r1", pose("r1", 0, 0)]]),
+      attachments: (nodeId, role) => {
+        seen.push([nodeId, role]);
+        return role === "pickup"
+          ? [{ actionType: "pickTrolley", blockingType: "HARD" }]
+          : [{ actionType: "dropTrolley", blockingType: "HARD" }];
+      },
+    });
+    tasks.set("t1", queued("t1", "a", "c"));
+    pumpSiteTasks(base);
+    await flush();
+    expect(seen).toEqual([
+      ["a", "pickup"],
+      ["c", "dropoff"],
+    ]);
+    const waypoints = calls[0]!.waypoints as Array<{ nodeId: string; actions?: unknown[] }>;
+    expect(waypoints.map((w) => w.nodeId)).toEqual(["a", "b", "c"]);
+    expect(waypoints[0]!.actions).toMatchObject([{ actionType: "pickTrolley" }]);
+    expect(waypoints[1]).not.toHaveProperty("actions");
+    expect(waypoints[2]!.actions).toMatchObject([{ actionType: "dropTrolley" }]);
+  });
+
+  test("no attachments callback means drive-only tours", async () => {
+    const { base, calls, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
+    tasks.set("t1", queued("t1", "a", "c"));
+    pumpSiteTasks(base);
+    await flush();
+    for (const w of calls[0]!.waypoints) expect(w).not.toHaveProperty("actions");
+  });
+
   test("assigns the nearest free robot along the routed path", async () => {
     const { base, calls, tasks } = setup({
       poses: new Map([
