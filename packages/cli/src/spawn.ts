@@ -33,7 +33,7 @@ export async function spawnRobot(options: SpawnOptions): Promise<void> {
     },
     { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 1000 },
     {
-      vehicleSpeed: 2,
+        vehicleSpeed: 1,
       initialPosition: { mapId: "local", x, y, theta: 0, lastNodeId: "0" },
     },
   );

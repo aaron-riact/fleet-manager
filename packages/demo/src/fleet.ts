@@ -61,7 +61,7 @@ export async function bootFleet(input: {
       clientOptions(interfaceName),
       { agvAdapterType: VirtualAgvAdapter, publishStateInterval: 250 },
       {
-        vehicleSpeed: 6,
+        vehicleSpeed: 3,
         initialPosition: { mapId: "local", x: spec.x ?? 0, y: spec.y ?? 0, theta: 0, lastNodeId: "0" },
       },
     );
