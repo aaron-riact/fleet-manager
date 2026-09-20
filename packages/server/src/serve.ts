@@ -3,6 +3,8 @@ import { bootSiteFleet, watchConnections, watchRobots, watchStates } from "@flee
 import type { ActiveOrder, OrderHistory, RobotConnection, RobotPose, SiteFleet } from "@fleet-manager/vda";
 import {
   DEFAULT_POSE_TTL_MS,
+  addDemand,
+  demandList,
   freeSpot,
   freshPoses,
   isFresh,
@@ -11,7 +13,7 @@ import {
   pumpSiteTasks,
   shortestPath,
 } from "@fleet-manager/core";
-import type { LockSnapshot, Site, TaskView } from "@fleet-manager/core";
+import type { DemandCounts, LockSnapshot, Site, TaskView, ZoneDemand } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
 import { loadSites } from "./sites.js";
 import { Auth } from "./auth.js";
@@ -185,6 +187,9 @@ export interface SiteContext extends SiteFleet {
   rawStates: Map<string, TrackedState>;
   /** Pickup→dropoff jobs (queued until the pump assigns a free robot). */
   tasks: Map<string, TaskView>;
+  /** Outstanding human-signalled demand per zone (bump endpoint, request endpoint consumes). */
+  demands: DemandCounts;
+  demandSubs: Set<(demands: ZoneDemand[]) => void>;
 }
 
 export async function buildSiteContexts(
@@ -217,6 +222,7 @@ export async function buildSiteContexts(
     const conns = new Map<string, RobotConnection>();
     const rawStates = new Map<string, TrackedState>();
     const tasks = new Map<string, TaskView>();
+    const demandSubs = new Set<(demands: ZoneDemand[]) => void>();
     const fleet = await bootSiteFleet(
       site,
       interfaceName,
@@ -286,6 +292,8 @@ export async function buildSiteContexts(
       conns,
       rawStates,
       tasks,
+      demands: {},
+      demandSubs,
       stop: async () => {
         stopConns();
         stopStates();
@@ -397,7 +405,29 @@ export function buildApp(
         return liveStream<RobotPose>(undefined, (send) => fanOut(ctx.poseSubs, send));
       if (params.stream === "connections")
         return liveStream([...ctx.conns.values()], (send) => fanOut(ctx.connSubs, send));
+      if (params.stream === "demands")
+        return liveStream(demandList(ctx.demands), (send) => fanOut(ctx.demandSubs, send));
       throw Object.assign(new Error("unknown stream"), { status: 404 });
+    })
+    .post("/api/sites/:name/demand", async ({ headers, params, body }) => {
+      // Signal unit demand for a zone (+n) or reset it (0). Low-frequency
+      // operator input; the request endpoint consumes units into tasks.
+      const me = await auth.me(bearerFromHeaders(headers));
+      const ctx = contexts.get(decodeURIComponent(params.name));
+      if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
+      if (!me.sites.includes(ctx.site.name))
+        throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const input = (body ?? {}) as { zone?: unknown; count?: unknown };
+      if (typeof input.zone !== "string" || !input.zone) {
+        throw Object.assign(new Error("zone required"), { status: 400 });
+      }
+      if (typeof input.count !== "number" || !Number.isInteger(input.count) || input.count < 0) {
+        throw Object.assign(new Error("count must be a non-negative integer"), { status: 400 });
+      }
+      ctx.demands = addDemand(ctx.demands, input.zone, input.count);
+      const all = demandList(ctx.demands);
+      for (const send of [...ctx.demandSubs]) send(all);
+      return { ok: true, zone: input.zone, demand: ctx.demands[input.zone] };
     })
     .post("/api/logout", async ({ headers }) => {
       await auth.logout(bearerFromHeaders(headers));

@@ -767,6 +767,70 @@ describe("HTTP API", () => {
     }
   }, 120_000);
 
+  test("demand bumps accumulate, reset, and stream", async () => {
+    const { post, base, stop } = await boot();
+    try {
+      const token = await testLogin(post, "http@cmr", "s3cret");
+      const authed = (path: string, body: unknown) =>
+        fetch(`${base}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        });
+      const path = "/api/sites/coalescent/demand";
+
+      expect((await authed(path, {})).status).toBe(400);
+      expect((await authed(path, { zone: "dock" })).status).toBe(400);
+      expect((await authed(path, { zone: "dock", count: -1 })).status).toBe(400);
+      expect((await authed(path, { zone: "dock", count: 1.5 })).status).toBe(400);
+
+      // subscribe first: baseline, then one push per bump
+      const stream = await fetch(`${base}/api/sites/coalescent/demands/stream?token=${token}`);
+      expect(stream.status).toBe(200);
+      const reader = stream.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      const readData = async (): Promise<unknown> => {
+        const deadline = Date.now() + 10_000;
+        for (;;) {
+          const idx = buf.indexOf("\n\n");
+          if (idx >= 0) {
+            const frame = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            const match = /^data: (.*)$/m.exec(frame);
+            if (match) return JSON.parse(match[1]!);
+            continue;
+          }
+          if (Date.now() > deadline) throw new Error("timed out waiting for demand frame");
+          const { done, value } = await reader.read();
+          if (done) throw new Error("demand stream closed");
+          buf += decoder.decode(value, { stream: true });
+        }
+      };
+      try {
+        expect(await readData()).toEqual([]);
+        const bumped = await (await authed(path, { zone: "dock", count: 2 })).json();
+        expect(bumped).toMatchObject({ ok: true, zone: "dock", demand: 2 });
+        expect(await readData()).toEqual([{ zone: "dock", demand: 2 }]);
+        await authed(path, { zone: "bay", count: 1 });
+        expect(await readData()).toEqual([
+          { zone: "bay", demand: 1 },
+          { zone: "dock", demand: 2 },
+        ]);
+        const reset = await (await authed(path, { zone: "dock", count: 0 })).json();
+        expect(reset).toMatchObject({ ok: true, zone: "dock", demand: 0 });
+        expect(await readData()).toEqual([
+          { zone: "bay", demand: 1 },
+          { zone: "dock", demand: 0 },
+        ]);
+      } finally {
+        await reader.cancel();
+      }
+    } finally {
+      await stop();
+    }
+  });
+
   test("poses stream forwards robot state", async () => {
     const { post, base, server, contexts } = await boot();
     try {
