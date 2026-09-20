@@ -12,13 +12,15 @@ import { TaskBoard } from "./TaskBoard";
 import type { Backend } from "./backend";
 import type { LoginSession } from "./authClient";
 
-type MobileTab = "map" | "tasks" | "robots" | "tools";
+export type MobileTab = "map" | "tasks" | "robots" | "tools";
 
 export interface MobileShellProps {
   session: LoginSession;
   backend: Backend;
   onLogout: () => void;
   extraPanel?: React.ReactNode;
+  tab: MobileTab;
+  onTabChange: (tab: MobileTab) => void;
 }
 
 const page: React.CSSProperties = {
@@ -39,10 +41,9 @@ const glass: React.CSSProperties = {
   backdropFilter: "blur(10px)",
 };
 
-function MobileView({ session, backend, onLogout, extraPanel }: MobileShellProps) {
+function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange }: MobileShellProps) {
   const { site, error, poses, locks, orders, history, live } = useFleetSite(backend);
   useFailedHistoryToasts(history);
-  const [tab, setTab] = useState<MobileTab>("map");
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
@@ -86,6 +87,9 @@ function MobileView({ session, backend, onLogout, extraPanel }: MobileShellProps
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: live ? theme.ok : theme.warn }} />
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={{ color: theme.textDim, fontSize: "0.75rem" }}>{session.username}</span>
+          <a href="#/" style={{ color: theme.textDim, fontSize: "0.75rem", textDecoration: "none" }}>
+            Desktop
+          </a>
           <button
             style={{ border: `1px solid ${theme.border}`, background: "transparent", color: theme.text, borderRadius: 999, padding: "0.3rem 0.8rem", fontSize: "0.75rem", cursor: "pointer" }}
             onClick={onLogout}
@@ -158,7 +162,7 @@ function MobileView({ session, backend, onLogout, extraPanel }: MobileShellProps
           return (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => onTabChange(t)}
               style={{
                 flex: 1,
                 padding: "0.8rem 0 calc(0.8rem + env(safe-area-inset-bottom))",

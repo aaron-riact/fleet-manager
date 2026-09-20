@@ -12,6 +12,8 @@ import { TaskBoard } from "./TaskBoard";
 import { ToastProvider, useFailedHistoryToasts, useToast } from "./Toast";
 import { ConfirmProvider, useConfirm } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
+import { MobileShell } from "./MobileShell";
+import { hashFor, parseHash, useHashRoute } from "./routes";
 import { theme } from "./theme";
 import type { LoginSession } from "./authClient";
 
@@ -210,6 +212,9 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
         </span>
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.6rem" }}>
           <span style={{ color: theme.textDim, fontSize: "0.85rem" }}>{session.username}</span>
+          <a href="#/m/map" style={{ color: theme.textDim, fontSize: "0.8rem", textDecoration: "none" }}>
+            Mobile
+          </a>
           <button
             style={{
               width: "auto",
@@ -341,10 +346,26 @@ export default function App({
     setSession(null);
   }
 
+  const [hash, navigate] = useHashRoute();
+  const route = parseHash(hash);
+  // The tools tab only exists where an extra panel is mounted (demo).
+  const tab = route.tab === "tools" && !extraPanel ? "map" : route.tab;
+
   return (
     <div style={page}>
       {effective && backend ? (
-        <Shell session={effective} backend={backend} onLogout={handleLogout} extraPanel={extraPanel} />
+        route.shell === "mobile" ? (
+          <MobileShell
+            session={effective}
+            backend={backend}
+            onLogout={handleLogout}
+            extraPanel={extraPanel}
+            tab={tab}
+            onTabChange={(t) => navigate(hashFor({ shell: "mobile", tab: t }))}
+          />
+        ) : (
+          <Shell session={effective} backend={backend} onLogout={handleLogout} extraPanel={extraPanel} />
+        )
       ) : (
         <LoginForm onLogin={handleLogin} />
       )}
