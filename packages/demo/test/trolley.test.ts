@@ -137,8 +137,8 @@ describe("trolley pick and drop", () => {
 
       expect(world.trolleyAt("depot")).toBe("trolley-1");
       expect(world.carrierOf("trolley-1")).toBeUndefined();
-      // Parked along the dock facing, straight from the trolley pose.
-      expect(world.trolleyPose("depot")?.theta).toBeCloseTo(Math.PI, 5);
+      // Parked perpendicular to the stance facing.
+      expect(world.trolleyPose("depot")?.theta).toBeCloseTo(-Math.PI / 2, 5);
       const after = seen.slice(seen.indexOf(last) + 1);
       const dropPositions = after.map((s) => s.agvPosition).filter((p) => p !== undefined);
       // Dock is stance (-1, 0) projected along theta π to (-2, 0); faced

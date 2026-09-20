@@ -280,10 +280,10 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
       // triangle.
       const dockTheta = num(p["dockTheta"])!;
       const back = normAngle(stanceTheta + Math.PI);
-      // Parked parallel to the dock facing: the orientation comes from the
-      // trolley pose (this dock heading), never from a derived offset.
+      // Parked perpendicular to the dock facing so the pick/drop visibly
+      // turns 90 degrees onto the trolley angle (and off it on release).
       const station = str(p["station"]);
-      if (station !== undefined) this.dropThetas.set(station, dockTheta);
+      if (station !== undefined) this.dropThetas.set(station, normAngle(stanceTheta + Math.PI / 2));
       legs.push({ kind: "turn", to: dockTheta });
       legs.push({ kind: "drive", x: dockX, y: dockY });
       legs.push({ kind: "turn", to: back });
