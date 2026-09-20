@@ -11,6 +11,8 @@ export { ToastProvider, toastReducer, useToast } from "./Toast.js";
 export type { Toast, ToastAction, ToastKind } from "./Toast.js";
 export { ConfirmProvider, useConfirm } from "./Confirm.js";
 export type { ConfirmRequest } from "./Confirm.js";
+export { useFleetSite } from "./useFleetSite.js";
+export type { FleetSiteData } from "./useFleetSite.js";
 export { robotStatus, statusColor, theme } from "./theme.js";
 export type { RobotSnapshot, RobotStatus } from "./theme.js";
 export { createHttpBackend } from "./backend.js";

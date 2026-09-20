@@ -2,19 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { login } from "./authClient";
 import { clearSession, loadSession, saveSession } from "./session";
 import { createHttpBackend } from "./backend";
-import type { Backend, HistoryView, LivePose, OrderView } from "./backend";
-import type { LockSnapshot } from "@fleet-manager/core";
+import type { Backend } from "./backend";
 import { FleetMap } from "./FleetMap";
 import { OrderComposer } from "./OrderComposer";
-import { POSE_TTL_MS, RobotCards, buildCards, filterCards, pruneStalePoses, summarizeCards } from "./RobotCards";
+import { RobotCards, buildCards, filterCards, summarizeCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { TaskBoard } from "./TaskBoard";
 import { ToastProvider, useToast } from "./Toast";
 import { ConfirmProvider, useConfirm } from "./Confirm";
+import { useFleetSite } from "./useFleetSite";
 import { statusColor, theme } from "./theme";
 import type { LoginSession } from "./authClient";
-import type { Site } from "@fleet-manager/core";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
 
@@ -128,66 +127,8 @@ export function Shell(props: ShellProps) {
 
 function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
   const toast = useToast();
-  const [site, setSite] = useState<Site | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [poses, setPoses] = useState<Record<string, LivePose>>({});
-  const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
-  const [orders, setOrders] = useState<OrderView[]>([]);
-  const [history, setHistory] = useState<HistoryView[]>([]);
+  const { site, error, poses, locks, orders, history, live } = useFleetSite(backend);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
-  const seenAt = useRef<Record<string, number>>({});
-
-  // Sweep silent robots off the cards. The poses stream only pushes on
-  // arrival, so without this a robot that stops reporting cards as placed
-  // forever — including through a total-silence outage the server cannot
-  // prune its way out of either.
-  useEffect(() => {
-    const sweep = setInterval(() => {
-      const at = seenAt.current;
-      setPoses((prev) => {
-        const next = pruneStalePoses(prev, at, Date.now(), POSE_TTL_MS);
-        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
-      });
-    }, 5_000);
-    return () => clearInterval(sweep);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const cleanups: Array<() => void> = [];
-    (async () => {
-      try {
-        const sites = await backend.listSites();
-        if (sites.length === 0) throw new Error("no sites assigned to this user");
-        const name = sites[0]!;
-        const map = await backend.getMap(name);
-        if (cancelled) return;
-        setSite(map);
-        cleanups.push(
-          backend.watchPoses(name, (pose) => {
-            if (cancelled) return;
-            seenAt.current[pose.serialNumber] = Date.now();
-            setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
-          }),
-          backend.watchLocks(name, (snap) => {
-            if (!cancelled) setLocks(snap);
-          }),
-          backend.watchOrders(name, (list) => {
-            if (!cancelled) setOrders(list);
-          }),
-          backend.watchHistory(name, (list) => {
-            if (!cancelled) setHistory(list);
-          }),
-        );
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "failed to load map");
-      }
-    })();
-    return () => {
-      cancelled = true;
-      for (const cleanup of cleanups) cleanup();
-    };
-  }, [backend]);
 
   const seenHistory = useRef(new Set<string>());
   // Toast background failures: tours that die outside any open form would
@@ -217,7 +158,6 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
   const summary = useMemo(() => summarizeCards(cards), [cards]);
   const visibleCards = useMemo(() => filterCards(cards, fleetFilter), [cards, fleetFilter]);
-  const live = site !== null && error === null;
   const { confirm } = useConfirm();
 
   async function parkAll() {
