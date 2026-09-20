@@ -1,5 +1,6 @@
 import { shortestPath } from "./plan.js";
 import { isFresh } from "./poses.js";
+import type { DemandCounts } from "./demand.js";
 import type { Site } from "./site.js";
 
 /**
@@ -52,12 +53,16 @@ export interface TaskPump {
   };
   poses: Map<string, TaskPose>;
   tasks: Map<string, TaskView>;
+  /** Outstanding demand per zone — queued tasks serve highest demand first. */
+  demands: DemandCounts;
   poseTtlMs: number;
 }
 
 /**
  * Assign queued tasks to the nearest free robot with a fresh pose.
  * Idempotent: safe to run on every order event and every submit.
+ * Ordering per run is demand first (highest zone count), then oldest,
+ * then id — so backlog pressure beats arrival order deterministically.
  * Terminal tasks (done/failed) accumulate only up to MAX_RETAINED_TASKS —
  * the orders history stream is the durable record.
  */
@@ -77,11 +82,18 @@ export function pumpSiteTasks(pump: TaskPump): void {
   }
 }
 
-function assignQueuedTasks({ site, fleet, poses, tasks, poseTtlMs }: TaskPump): void {
+function assignQueuedTasks({ site, fleet, poses, tasks, demands, poseTtlMs }: TaskPump): void {
   const now = Date.now();
   const byId = new Map(site.nodes.map((n) => [n.id, n]));
-  for (const task of [...tasks.values()]) {
-    if (task.status !== "queued") continue;
+  const queued = [...tasks.values()]
+    .filter((t) => t.status === "queued")
+    .sort(
+      (a, b) =>
+        (demands[b.zone ?? ""] ?? 0) - (demands[a.zone ?? ""] ?? 0) ||
+        a.createdAt - b.createdAt ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+  for (const task of queued) {
     // Requested tasks never reach the pump (only queued do), so a
     // missing pickup here means corrupt state, not a slow dispatcher.
     if (task.pickup === undefined) {
@@ -96,6 +108,15 @@ function assignQueuedTasks({ site, fleet, poses, tasks, poseTtlMs }: TaskPump): 
       task.reason = `unknown pickup or dropoff node`;
       continue;
     }
+    // Route before robots: an undispatchable task fails whether or not
+    // anyone is free to drive it. (Robot search first would park it in
+    // queued forever whenever the fleet happened to be busy.)
+    const path = shortestPath(site, task.pickup, task.dropoff);
+    if (!path) {
+      task.status = "failed";
+      task.reason = `no route from "${task.pickup}" to "${task.dropoff}"`;
+      continue;
+    }
     let best: { serial: string; manufacturer: string; pose: TaskPose; d: number } | undefined;
     for (const [serial, pose] of poses) {
       if (!isFresh(pose, now, poseTtlMs) || fleet.isBusy(serial)) continue;
@@ -103,12 +124,6 @@ function assignQueuedTasks({ site, fleet, poses, tasks, poseTtlMs }: TaskPump): 
       if (!best || d < best.d) best = { serial, manufacturer: pose.manufacturer, pose, d };
     }
     if (!best) continue;
-    const path = shortestPath(site, task.pickup, task.dropoff);
-    if (!path) {
-      task.status = "failed";
-      task.reason = `no route from "${task.pickup}" to "${task.dropoff}"`;
-      continue;
-    }
     task.status = "assigned";
     task.assignee = best.serial;
     const from = { x: best.pose.x, y: best.pose.y };

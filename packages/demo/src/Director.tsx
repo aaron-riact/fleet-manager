@@ -50,7 +50,7 @@ export default function Director() {
         },
       ]),
     );
-    pumpSiteTasks({ site: site as Site, fleet: svc, poses, tasks: tasksRef.current, poseTtlMs: POSE_TTL_MS });
+    pumpSiteTasks({ site: site as Site, fleet: svc, poses, tasks: tasksRef.current, demands: {}, poseTtlMs: POSE_TTL_MS });
   }
   const [backend] = useState<MemoryBackend>(() =>
     createMemoryBackend(site as Site, {

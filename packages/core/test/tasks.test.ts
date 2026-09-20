@@ -35,6 +35,9 @@ function setup(over: Partial<TaskPump> = {}) {
     dispatch: async (agv: { serialNumber: string }, waypoints: Array<{ nodeId: string }>) => {
       calls.push({ serial: agv.serialNumber, waypoints });
       if (failWith) throw failWith;
+      // mirrors the real Fleet: the order registers synchronously, so a
+      // second assignment later in the same pump run sees the robot taken
+      busy.add(agv.serialNumber);
       return "fleet-order-9";
     },
   };
@@ -44,6 +47,7 @@ function setup(over: Partial<TaskPump> = {}) {
     fleet,
     poses: new Map(),
     tasks,
+    demands: {},
     poseTtlMs: 30_000,
     ...over,
   };
@@ -131,6 +135,25 @@ describe("pumpSiteTasks", () => {
     expect([...tasks.values()].filter((t) => t.status === "done")).toHaveLength(MAX_RETAINED_TASKS);
   });
 
+  test("highest zone demand assigns first even when newer", () => {
+    const { base, calls, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
+    tasks.set("old-plain", { ...queued("old-plain"), createdAt: 1 });
+    tasks.set("new-hot", { ...queued("new-hot"), zone: "dock", createdAt: 2 });
+    pumpSiteTasks({ ...base, demands: { dock: 5 } });
+    expect(tasks.get("new-hot")!.status).toBe("assigned");
+    expect(tasks.get("old-plain")!.status).toBe("queued");
+    expect(calls).toHaveLength(1);
+  });
+
+  test("without demand differences the oldest queued task wins", () => {
+    const { base, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
+    tasks.set("newer", { ...queued("newer"), createdAt: 2 });
+    tasks.set("older", { ...queued("older"), createdAt: 1 });
+    pumpSiteTasks(base);
+    expect(tasks.get("older")!.status).toBe("assigned");
+    expect(tasks.get("newer")!.status).toBe("queued");
+  });
+
   test("terminal tasks are bounded, live ones never dropped", () => {
     const { base, tasks } = setup({ poses: new Map() });
     for (let i = 0; i < MAX_RETAINED_TASKS + 5; i++) {
@@ -157,6 +180,7 @@ describe("pumpSiteTasks", () => {
       site,
       poses,
       tasks,
+      demands: {},
       poseTtlMs: 30_000,
       fleet: {
         isBusy: (serial) => busy.has(serial),

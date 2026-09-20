@@ -223,6 +223,9 @@ export async function buildSiteContexts(
     const conns = new Map<string, RobotConnection>();
     const rawStates = new Map<string, TrackedState>();
     const tasks = new Map<string, TaskView>();
+    // Single mutable record per site: endpoints update it in place so the
+    // pump calls below always read live demand through this reference.
+    const demands: DemandCounts = {};
     const demandSubs = new Set<(demands: ZoneDemand[]) => void>();
     const fleet = await bootSiteFleet(
       site,
@@ -234,7 +237,7 @@ export async function buildSiteContexts(
         onOrders: (orders) => {
           for (const send of [...orderSubs]) send(orders);
           // A lifecycle end frees a robot — the moment queued tasks move.
-          pumpSiteTasks({ site, fleet: fleet.fleet, poses, tasks, poseTtlMs });
+          pumpSiteTasks({ site, fleet: fleet.fleet, poses, tasks, demands, poseTtlMs });
         },
         onHistory: (history) => {
           for (const send of [...historySubs]) send(history);
@@ -264,7 +267,7 @@ export async function buildSiteContexts(
       // A robot coming back into view is the other way work becomes
       // assignable. Without this a task queued while every robot was
       // busy or silent waits for an unrelated order to end.
-      if (!wasKnown) pumpSiteTasks({ site, fleet: fleet.fleet, poses, tasks, poseTtlMs });
+      if (!wasKnown) pumpSiteTasks({ site, fleet: fleet.fleet, poses, tasks, demands, poseTtlMs });
     });
     // One subscription per master: the lib chains track handlers
     // permanently, so this must not run per stream.
@@ -293,7 +296,7 @@ export async function buildSiteContexts(
       conns,
       rawStates,
       tasks,
-      demands: {},
+      demands,
       demandSubs,
       stop: async () => {
         stopConns();
@@ -304,6 +307,18 @@ export async function buildSiteContexts(
     });
   }
   return contexts;
+}
+
+/**
+ * Replace a site's demand record in place (never reassign: the pump
+ * calls closed over the original reference) and fan the snapshot out.
+ */
+function setDemands(ctx: SiteContext, next: DemandCounts): ZoneDemand[] {
+  for (const key of Object.keys(ctx.demands)) delete ctx.demands[key];
+  Object.assign(ctx.demands, next);
+  const all = demandList(ctx.demands);
+  for (const send of [...ctx.demandSubs]) send(all);
+  return all;
 }
 
 function siteGuard(
@@ -425,9 +440,7 @@ export function buildApp(
       if (typeof input.count !== "number" || !Number.isInteger(input.count) || input.count < 0) {
         throw Object.assign(new Error("count must be a non-negative integer"), { status: 400 });
       }
-      ctx.demands = addDemand(ctx.demands, input.zone, input.count);
-      const all = demandList(ctx.demands);
-      for (const send of [...ctx.demandSubs]) send(all);
+      setDemands(ctx, addDemand(ctx.demands, input.zone, input.count));
       return { ok: true, zone: input.zone, demand: ctx.demands[input.zone] };
     })
     .post("/api/logout", async ({ headers }) => {
@@ -612,7 +625,7 @@ export function buildApp(
         status: "queued",
         createdAt: Date.now(),
       });
-      pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, poseTtlMs });
+      pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, demands: ctx.demands, poseTtlMs });
       return { ok: true, taskId: id };
     })
     .post("/api/sites/:name/tasks/request", async ({ headers, params, body }) => {
@@ -644,9 +657,7 @@ export function buildApp(
         createdAt: Date.now(),
       });
       if (input.zone !== undefined) {
-        ctx.demands = consumeDemand(ctx.demands, input.zone);
-        const all = demandList(ctx.demands);
-        for (const send of [...ctx.demandSubs]) send(all);
+        setDemands(ctx, consumeDemand(ctx.demands, input.zone));
       }
       return { ok: true, taskId: id };
     })
@@ -678,7 +689,7 @@ export function buildApp(
       }
       task.pickup = input.pickup;
       task.status = "queued";
-      pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, poseTtlMs });
+      pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, demands: ctx.demands, poseTtlMs });
       return { ok: true, taskId: id };
     })
     .get("/api/sites/:name/tasks", async ({ headers, params }) => {
@@ -702,9 +713,7 @@ export function buildApp(
       // go away just because nobody will drive it.
       if (task.status === "requested") {
         if (task.zone !== undefined) {
-          ctx.demands = addDemand(ctx.demands, task.zone, 1);
-          const all = demandList(ctx.demands);
-          for (const send of [...ctx.demandSubs]) send(all);
+          setDemands(ctx, addDemand(ctx.demands, task.zone, 1));
         }
         ctx.tasks.delete(id);
         return { ok: true };
