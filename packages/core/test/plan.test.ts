@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nearestNode, shortestPath } from "../src/plan.js";
+import { nearestNode, parkRoute, shortestPath } from "../src/plan.js";
 import type { Site } from "../src/site.js";
 
 const site: Site = {
@@ -44,5 +44,22 @@ describe("nearestNode", () => {
     expect(nearestNode(site, 9.9, 0.1)).toBe("c");
     // d sits at (5,6): closest to the midpoint below it
     expect(nearestNode(site, 5, 2)).toBe("b");
+  });
+});
+
+describe("parkRoute", () => {
+  test("routes from the robot to the spot entry over the network", () => {
+    const route = parkRoute(site, { x: 0, y: 0 }, { id: "p1", x: 10, y: 1, entry: "c" });
+    expect(route?.map((w) => w.nodeId)).toEqual(["a", "b", "c"]);
+    expect(route?.[2]).toMatchObject({ nodeId: "c", x: 10, y: 0 });
+  });
+
+  test("falls back to the nearest node without an entry", () => {
+    const route = parkRoute(site, { x: 0, y: 0 }, { id: "p1", x: 10, y: 1 });
+    expect(route?.map((w) => w.nodeId)).toEqual(["a", "b", "c"]);
+  });
+
+  test("returns undefined when unreachable", () => {
+    expect(parkRoute(site, { x: 0, y: 0 }, { id: "p1", x: 50, y: 50, entry: "island" })).toBeUndefined();
   });
 });

@@ -13,6 +13,7 @@ import {
   isFresh,
   nextTaskId,
   occupiedSpots,
+  parkRoute,
   pumpSiteTasks,
 } from "@fleet-manager/core";
 import type { DemandCounts, LockSnapshot, Site, TaskView, ZoneDemand } from "@fleet-manager/core";
@@ -274,8 +275,23 @@ export async function buildSiteContexts(
           );
           if (!spot) return;
           parkingTargets.set(serial, spot.id);
-          fleet.fleet
-            .park({ manufacturer: pose.manufacturer, serialNumber: serial }, spot, { from: pose })
+          // Locked tour to the spot's entry with the parking leg appended
+          // (same shape as driveLoop tours), so the robot follows the
+          // network instead of free-driving through walls. Falls back to
+          // a free-drive park only when no route exists.
+          const route = parkRoute(site, pose, spot);
+          const ride = route
+            ? fleet.fleet.dispatch(
+              { manufacturer: pose.manufacturer, serialNumber: serial },
+              route,
+              { from: pose, park: spot },
+            )
+            : fleet.fleet.park(
+              { manufacturer: pose.manufacturer, serialNumber: serial },
+              spot,
+              { from: pose },
+            );
+          ride
             .catch((error: unknown) => console.warn("auto-park failed", error))
             .finally(() => {
               parkingTargets.delete(serial);

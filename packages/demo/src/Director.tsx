@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchConnections, watchRobots } from "@fleet-manager/vda";
-import { addDemand, checkNode, checkRoutePair, consumeDemand, demandList, freeSpot, nextTaskId, occupiedSpots, pumpSiteTasks } from "@fleet-manager/core";
+import { addDemand, checkNode, checkRoutePair, consumeDemand, demandList, freeSpot, nextTaskId, occupiedSpots, parkRoute, pumpSiteTasks } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
@@ -341,8 +341,15 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         // parkedRef, so an unclaimed target could be double-booked.
         parkingTargetsRef.current.set(serial, spot.id);
         setParked((prev) => ({ ...prev, [spot.id]: serial }));
-        svc
-          .park(robot.id, spot, { from: pose })
+        // Locked tour to the spot's entry with the parking leg appended
+        // (same shape as driveLoop tours), so the robot follows the
+        // network instead of free-driving through walls. Falls back to
+        // a free-drive park only when no route exists.
+        const route = parkRoute(site as Site, pose, spot);
+        const ride = route
+          ? svc.dispatch(robot.id, route, { from: pose, park: spot })
+          : svc.park(robot.id, spot, { from: pose });
+        ride
           .catch((error: unknown) => {
             console.warn("auto-park failed", error);
             // Release the reservation we took above, or the spot leaks.

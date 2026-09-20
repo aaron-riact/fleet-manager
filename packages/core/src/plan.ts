@@ -57,6 +57,33 @@ export function shortestPath(site: Site, from: string, to: string): string[] | u
 }
 
 /**
+ * Locked route for driving a finished robot to parking over the
+ * network instead of free-driving it: from its nearest node to the
+ * spot's entry (or nearest node). The caller appends the parking leg
+ * itself via the dispatch `park` option. Returns undefined when either
+ * end has no node or no path connects them — then the caller falls
+ * back to free-drive park rather than stranding the robot. Pure.
+ */
+export function parkRoute(
+  site: Site,
+  from: { x: number; y: number },
+  spot: { id: string; x: number; y: number; entry?: string },
+): Array<{ nodeId: string; x: number; y: number }> | undefined {
+  const nodes = new Map(site.nodes.map((n) => [n.id, n]));
+  const endId =
+    (spot.entry && nodes.has(spot.entry) ? spot.entry : undefined) ??
+    nearestNode(site, spot.x, spot.y);
+  const startId = nearestNode(site, from.x, from.y);
+  if (!endId || !startId) return undefined;
+  const path = shortestPath(site, startId, endId);
+  if (!path) return undefined;
+  return path.map((id) => {
+    const node = nodes.get(id)!;
+    return { nodeId: node.id, x: node.x, y: node.y };
+  });
+}
+
+/**
  * Nearest graph node to a free coordinate (station poses address work,
  * not graph nodes). Ties break to the earlier node — deterministic.
  * Pure, tested.
