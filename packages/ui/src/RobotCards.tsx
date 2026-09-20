@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { robotStatus, statusColor, theme } from "./theme";
 import { useToast } from "./Toast";
 import { useConfirm } from "./Confirm";
@@ -91,6 +91,57 @@ export function summarizeCards(cards: RobotCardModel[]): Record<RobotStatus, num
 /** Overview strip selection. Pure, tested. */
 export function filterCards(cards: RobotCardModel[], filter: FleetFilter): RobotCardModel[] {
   return filter === "all" ? cards : cards.filter((c) => c.status === filter);
+}
+
+/** Status headcount chips; doubles as the fleet filter. Shared by desktop and mobile shells. */
+export function StatusStrip({
+  cards,
+  value,
+  onChange,
+}: {
+  cards: RobotCardModel[];
+  value: FleetFilter;
+  onChange: (filter: FleetFilter) => void;
+}) {
+  const summary = useMemo(() => summarizeCards(cards), [cards]);
+  return (
+    <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+      {(["all", "driving", "waiting", "charging", "idle", "offline"] as const).map((f) => {
+        const active = value === f;
+        const count = f === "all" ? cards.length : summary[f];
+        return (
+          <button
+            key={f}
+            onClick={() => onChange(f)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              padding: "0.2rem 0.6rem",
+              borderRadius: 999,
+              border: `1px solid ${active ? theme.accent : theme.border}`,
+              background: active ? "rgba(47, 129, 247, 0.15)" : "transparent",
+              color: active ? theme.text : theme.textDim,
+              cursor: "pointer",
+              fontSize: "0.72rem",
+            }}
+          >
+            {f !== "all" && (
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: statusColor(f),
+                }}
+              />
+            )}
+            {f} · {count}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 const cardStyle: React.CSSProperties = {

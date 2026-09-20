@@ -1,18 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { login } from "./authClient";
 import { clearSession, loadSession, saveSession } from "./session";
 import { createHttpBackend } from "./backend";
 import type { Backend } from "./backend";
 import { FleetMap } from "./FleetMap";
 import { OrderComposer } from "./OrderComposer";
-import { RobotCards, buildCards, filterCards, summarizeCards } from "./RobotCards";
+import { RobotCards, StatusStrip, buildCards, filterCards } from "./RobotCards";
 import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { TaskBoard } from "./TaskBoard";
-import { ToastProvider, useToast } from "./Toast";
+import { ToastProvider, useFailedHistoryToasts, useToast } from "./Toast";
 import { ConfirmProvider, useConfirm } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
-import { statusColor, theme } from "./theme";
+import { theme } from "./theme";
 import type { LoginSession } from "./authClient";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
@@ -130,33 +130,9 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
   const { site, error, poses, locks, orders, history, live } = useFleetSite(backend);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
-  const seenHistory = useRef(new Set<string>());
-  // Toast background failures: tours that die outside any open form would
-  // otherwise surface nowhere — the history stream is the only witness.
-  // The first snapshot only marks ids seen, never toasts: those failures
-  // predate this session.
-  useEffect(() => {
-    const seen = seenHistory.current;
-    const first = seen.size === 0;
-    for (const h of history) {
-      if (!seen.has(h.orderId)) {
-        if (!first && h.outcome === "failed") {
-          toast.show({
-            kind: "bad",
-            message: `Tour for ${h.serial} failed${h.reason ? `: ${h.reason}` : ""}`,
-          });
-        }
-        seen.add(h.orderId);
-      }
-    }
-    if (seen.size > history.length + 50) {
-      const live = new Set(history.map((h) => h.orderId));
-      for (const id of seen) if (!live.has(id)) seen.delete(id);
-    }
-  }, [history, toast]);
+  useFailedHistoryToasts(history);
 
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
-  const summary = useMemo(() => summarizeCards(cards), [cards]);
   const visibleCards = useMemo(() => filterCards(cards, fleetFilter), [cards, fleetFilter]);
   const { confirm } = useConfirm();
 
@@ -313,42 +289,7 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
                     </button>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
-                  {(["all", "driving", "waiting", "charging", "idle", "offline"] as const).map((f) => {
-                    const active = fleetFilter === f;
-                    const count = f === "all" ? cards.length : summary[f];
-                    return (
-                      <button
-                        key={f}
-                        onClick={() => setFleetFilter(f)}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.35rem",
-                          padding: "0.2rem 0.6rem",
-                          borderRadius: 999,
-                          border: `1px solid ${active ? theme.accent : theme.border}`,
-                          background: active ? "rgba(47, 129, 247, 0.15)" : "transparent",
-                          color: active ? theme.text : theme.textDim,
-                          cursor: "pointer",
-                          fontSize: "0.72rem",
-                        }}
-                      >
-                        {f !== "all" && (
-                          <span
-                            style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: "50%",
-                              background: statusColor(f),
-                            }}
-                          />
-                        )}
-                        {f} · {count}
-                      </button>
-                    );
-                  })}
-                </div>
+                <StatusStrip cards={cards} value={fleetFilter} onChange={setFleetFilter} />
                 <RobotCards cards={visibleCards} backend={backend} siteName={site?.name} />
               </section>
               <TaskHistory history={history} />

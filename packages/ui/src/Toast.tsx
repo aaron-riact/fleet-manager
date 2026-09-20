@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useReducer, useRef } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import { theme } from "./theme";
 
 export type ToastKind = "ok" | "warn" | "bad" | "info";
@@ -114,4 +114,40 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
 export function useToast(): { show: (toast: Omit<Toast, "id">, timeoutMs?: number) => void } {
   return useContext(ToastContext);
+}
+
+export interface FailedHistoryEntry {
+  orderId: string;
+  serial: string;
+  outcome: string;
+  reason?: string;
+}
+
+/**
+ * Toast tours that die outside any open form. The history stream is the
+ * only witness, so every shell mounts this. The first snapshot only
+ * marks ids seen, never toasts: those failures predate the session.
+ */
+export function useFailedHistoryToasts(history: FailedHistoryEntry[]): void {
+  const toast = useToast();
+  const seen = useRef(new Set<string>());
+  useEffect(() => {
+    const known = seen.current;
+    const first = known.size === 0;
+    for (const h of history) {
+      if (!known.has(h.orderId)) {
+        if (!first && h.outcome === "failed") {
+          toast.show({
+            kind: "bad",
+            message: `Tour for ${h.serial} failed${h.reason ? `: ${h.reason}` : ""}`,
+          });
+        }
+        known.add(h.orderId);
+      }
+    }
+    if (known.size > history.length + 50) {
+      const live = new Set(history.map((h) => h.orderId));
+      for (const id of known) if (!live.has(id)) known.delete(id);
+    }
+  }, [history, toast]);
 }
