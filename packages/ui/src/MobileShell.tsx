@@ -44,7 +44,8 @@ const glass: React.CSSProperties = {
 };
 
 function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange }: MobileShellProps) {
-  const { site, error, poses, locks, orders, history, live } = useFleetSite(backend);
+  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
+    useFleetSite(backend);
   useFailedHistoryToasts(history);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
@@ -82,11 +83,25 @@ function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange }
       >
         <span style={{ fontSize: "1.1rem", color: theme.accent }}>⬢</span>
         <strong style={{ fontSize: "0.95rem" }}>Fleet</strong>
-        {site && (
-          <span style={{ fontSize: "0.7rem", color: theme.textDim, border: `1px solid ${theme.border}`, borderRadius: 999, padding: "0.1rem 0.6rem" }}>
-            {site.name}
-          </span>
-        )}
+        {site &&
+          (sites.length > 1 ? (
+            <select
+              aria-label="Site"
+              value={siteName ?? site.name}
+              onChange={(e) => setSiteName(e.target.value)}
+              style={{ fontSize: "0.7rem", color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 999, padding: "0.1rem 0.4rem", background: theme.bg, cursor: "pointer", maxWidth: "8rem" }}
+            >
+              {sites.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span style={{ fontSize: "0.7rem", color: theme.textDim, border: `1px solid ${theme.border}`, borderRadius: 999, padding: "0.1rem 0.6rem" }}>
+              {site.name}
+            </span>
+          ))}
         <span style={{ width: 8, height: 8, borderRadius: "50%", background: live ? theme.ok : theme.warn }} />
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={{ color: theme.textDim, fontSize: "0.75rem" }}>{session.username}</span>

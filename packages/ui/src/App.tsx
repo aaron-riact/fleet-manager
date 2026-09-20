@@ -133,7 +133,8 @@ export function Shell(props: ShellProps) {
 
 function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
   const toast = useToast();
-  const { site, error, poses, locks, orders, history, live } = useFleetSite(backend);
+  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
+    useFleetSite(backend);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
   useFailedHistoryToasts(history);
@@ -191,19 +192,41 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
       >
         <span style={{ fontSize: "1.2rem", color: theme.accent }}>⬢</span>
         <strong style={{ letterSpacing: "-0.01em" }}>Fleet Manager</strong>
-        {site && (
-          <span
-            style={{
-              fontSize: "0.75rem",
-              color: theme.textDim,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 999,
-              padding: "0.15rem 0.7rem",
-            }}
-          >
-            {site.name}
-          </span>
-        )}
+        {site &&
+          (sites.length > 1 ? (
+            <select
+              aria-label="Site"
+              value={siteName ?? site.name}
+              onChange={(e) => setSiteName(e.target.value)}
+              style={{
+                fontSize: "0.75rem",
+                color: theme.text,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 999,
+                padding: "0.15rem 0.5rem",
+                background: theme.bg,
+                cursor: "pointer",
+              }}
+            >
+              {sites.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span
+              style={{
+                fontSize: "0.75rem",
+                color: theme.textDim,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 999,
+                padding: "0.15rem 0.7rem",
+              }}
+            >
+              {site.name}
+            </span>
+          ))}
         <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.75rem", color: theme.textDim }}>
           <span
             style={{
