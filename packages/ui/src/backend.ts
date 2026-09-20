@@ -83,6 +83,14 @@ export interface Backend {
   dispatchOrder(site: string, input: DispatchInput): Promise<void>;
   /** Park an idle robot (nearest free spot unless spotId given). */
   parkRobot(site: string, input: { serialNumber: string; spotId?: string }): Promise<{ spot: string }>;
+  /** Park many robots at once; per-robot failures ride along, never abort. */
+  parkRobots(
+    site: string,
+    input: { serialNumbers: string[]; zone?: string },
+  ): Promise<{
+    parked: Array<{ serialNumber: string; spot: string }>;
+    failed: Array<{ serialNumber: string; error: string }>;
+  }>;
   /** Cancel the active order. Rejects when the robot has none. */
   cancelOrder(site: string, input: { serialNumber: string }): Promise<void>;
   /** Queue a pickup→dropoff job for the assign pump. */
@@ -159,6 +167,15 @@ export function createHttpBackend(
         );
       }
       return { spot: res.data.spot };
+    },
+    parkRobots: async (site, input) => {
+      const res = await treatyApi(fetchFn).api.sites({ name: site })["park-many"].post(input);
+      if (res.data == null || "error" in res.data) {
+        throw new Error(
+          res.data != null ? res.data.error : errorMessage(res.error, res.status),
+        );
+      }
+      return { parked: res.data.parked, failed: res.data.failed };
     },
     cancelOrder: async (site, input) => {
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.cancel.post(input);

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchConnections, watchRobots } from "@fleet-manager/vda";
-import { freeSpot, nextTaskId, pumpSiteTasks, shortestPath } from "@fleet-manager/core";
+import { freeSpot, nextTaskId, occupiedSpots, pumpSiteTasks, shortestPath } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
@@ -126,6 +126,51 @@ export default function Director() {
         if (!task) throw new Error("unknown task");
         if (task.status !== "queued") throw new Error("only queued tasks can be withdrawn");
         tasksRef.current.delete(taskId);
+      },
+      parkRobots: async (_site, input) => {
+        const svc = svcRef.current;
+        const fleet = fleetRef.current;
+        if (!svc || !fleet) throw new Error("fleet not booted yet");
+        const now = Date.now();
+        const spots = ((site as Site).parking ?? []).filter(
+          (s) => input.zone === undefined || s.zone === input.zone,
+        );
+        const live = Object.values(posesRef.current).filter(
+          (p) =>
+            Number.isFinite(p.x) &&
+            Number.isFinite(p.y) &&
+            now - (seenRef.current[p.serialNumber] ?? 0) < POSE_TTL_MS,
+        );
+        const occupied = occupiedSpots(spots, live);
+        const taken = new Set<string>();
+        const parked: Array<{ serialNumber: string; spot: string }> = [];
+        const failed: Array<{ serialNumber: string; error: string }> = [];
+        for (const serialNumber of input.serialNumbers) {
+          const pose = posesRef.current[serialNumber];
+          if (!pose || !live.includes(pose)) {
+            failed.push({ serialNumber, error: "no recent pose for robot" });
+            continue;
+          }
+          const robot = fleet.robots.find((r) => r.id.serialNumber === serialNumber);
+          if (!robot) {
+            failed.push({ serialNumber, error: "unknown robot" });
+            continue;
+          }
+          const spot = freeSpot(
+            spots.filter((s) => !taken.has(s.id)),
+            occupied,
+            pose,
+          );
+          if (!spot) {
+            failed.push({ serialNumber, error: "no free parking spot" });
+            continue;
+          }
+          taken.add(spot.id);
+          // Accepted, not awaited — same fire-and-forget as the server.
+          svc.park(robot.id, spot, { from: pose }).catch((e: unknown) => console.warn("park failed", e));
+          parked.push({ serialNumber, spot: spot.id });
+        }
+        return { parked, failed };
       },
     }),
   );

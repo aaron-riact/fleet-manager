@@ -80,6 +80,25 @@ describe("createMemoryBackend", () => {
     await expect(bare.dispatchOrder("demo", input)).rejects.toThrow(/no dispatcher/);
   });
 
+  test("bulk park delegates to actions, or fails clearly", async () => {
+    const calls: unknown[] = [];
+    const result = {
+      parked: [{ serialNumber: "r1", spot: "p1" }],
+      failed: [],
+    };
+    const backend = createMemoryBackend(site, {
+      parkRobots: async (name, input) => {
+        calls.push([name, input]);
+        return result;
+      },
+    });
+    await expect(backend.parkRobots("demo", { serialNumbers: ["r1"] })).resolves.toEqual(result);
+    expect(calls).toEqual([["demo", { serialNumbers: ["r1"] }]]);
+
+    const bare = createMemoryBackend(site);
+    await expect(bare.parkRobots("demo", { serialNumbers: ["r1"] })).rejects.toThrow(/no dispatcher/);
+  });
+
   test("tasks delegate to actions, or fail clearly", async () => {
     const calls: string[] = [];
     const queued: TaskView[] = [

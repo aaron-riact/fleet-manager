@@ -25,6 +25,29 @@ describe("createHttpBackend dispatch", () => {
     ).rejects.toThrow(/busy/);
   });
 
+  test("parks many through the bulk endpoint", async () => {
+    const seen: Array<[string, string, unknown]> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      seen.push([(init?.method ?? "GET"), url, JSON.parse((init?.body as string) ?? "{}")]);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          parked: [{ serialNumber: "r1", spot: "p1" }],
+          failed: [{ serialNumber: "r2", error: "no recent pose for robot" }],
+        }),
+        { status: 200 },
+      );
+    }) as unknown as FetchFn;
+    const backend = createHttpBackend("http://x", "t", fetchFn);
+    await expect(backend.parkRobots("coalescent", { serialNumbers: ["r1", "r2"] })).resolves.toEqual({
+      parked: [{ serialNumber: "r1", spot: "p1" }],
+      failed: [{ serialNumber: "r2", error: "no recent pose for robot" }],
+    });
+    expect(seen).toEqual([
+      ["POST", "http://x/api/sites/coalescent/park-many", { serialNumbers: ["r1", "r2"] }],
+    ]);
+  });
+
   test("parks and cancels through their endpoints", async () => {
     const seen: Array<[string, string, unknown]> = [];
     const fetchFn = (async (url: string, init?: RequestInit) => {

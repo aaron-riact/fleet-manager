@@ -24,6 +24,13 @@ export interface MemoryBackendActions {
   submitTask?(site: string, input: { pickup: string; dropoff: string }): Promise<{ taskId: string }>;
   listTasks?(site: string): Promise<TaskView[]>;
   withdrawTask?(site: string, taskId: string): Promise<void>;
+  parkRobots?(
+    site: string,
+    input: { serialNumbers: string[]; zone?: string },
+  ): Promise<{
+    parked: Array<{ serialNumber: string; spot: string }>;
+    failed: Array<{ serialNumber: string; error: string }>;
+  }>;
 }
 
 /**
@@ -80,6 +87,10 @@ export function createMemoryBackend(site: Site, actions: MemoryBackendActions = 
     withdrawTask: async (site, taskId) => {
       if (!actions.withdrawTask) throw new Error(`no dispatcher for site "${site}"`);
       await actions.withdrawTask(site, taskId);
+    },
+    parkRobots: async (site, input) => {
+      if (!actions.parkRobots) throw new Error(`no dispatcher for site "${site}"`);
+      return actions.parkRobots(site, input);
     },
     emitPose: emit(poseListeners),
     emitLocks: emit(lockListeners),

@@ -11,7 +11,7 @@ import type { FleetFilter } from "./RobotCards";
 import { TaskHistory } from "./TaskHistory";
 import { TaskBoard } from "./TaskBoard";
 import { ToastProvider, useToast } from "./Toast";
-import { ConfirmProvider } from "./Confirm";
+import { ConfirmProvider, useConfirm } from "./Confirm";
 import { statusColor, theme } from "./theme";
 import type { LoginSession } from "./authClient";
 import type { Site } from "@fleet-manager/core";
@@ -218,6 +218,38 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
   const summary = useMemo(() => summarizeCards(cards), [cards]);
   const visibleCards = useMemo(() => filterCards(cards, fleetFilter), [cards, fleetFilter]);
   const live = site !== null && error === null;
+  const { confirm } = useConfirm();
+
+  async function parkAll() {
+    if (cards.length === 0) return;
+    const withOrders = cards.filter((c) => c.order).length;
+    const ok = await confirm({
+      title: `Park ${cards.length === 1 ? "robot" : "all " + cards.length + " robots"}?`,
+      body:
+        withOrders > 0
+          ? `${withOrders} with active orders will abandon their tours.`
+          : "Idle robots drive off-graph and hold no locks.",
+      confirmLabel: "Park all",
+      danger: withOrders > 0,
+    });
+    if (!ok || !site) return;
+    try {
+      const { parked, failed } = await backend.parkRobots(
+        site.name,
+        { serialNumbers: cards.map((c) => c.serialNumber) },
+      );
+      if (failed.length === 0) {
+        toast.show({ kind: "ok", message: `${parked.length} robot${parked.length === 1 ? "" : "s"} parking` });
+      } else {
+        toast.show({
+          kind: "warn",
+          message: `${parked.length} parking, ${failed.length} failed (${failed.map((f) => f.serialNumber).join(", ")})`,
+        });
+      }
+    } catch (e) {
+      toast.show({ kind: "bad", message: e instanceof Error ? e.message : "park all failed" });
+    }
+  }
 
   return (
     <div style={{ width: "100%", maxWidth: 1280, padding: "1rem 1.25rem 2rem" }}>
@@ -319,9 +351,28 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
                 <OrderComposer site={site} siteName={site.name} backend={backend} poses={poses} />
               )}
               <section>
-                <h2 style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: theme.textFaint, margin: "0 0 0.5rem" }}>
-                  Robots · {fleetFilter === "all" ? cards.length : `${visibleCards.length} of ${cards.length}`}
-                </h2>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem", margin: "0 0 0.5rem" }}>
+                  <h2 style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.08em", color: theme.textFaint, margin: 0 }}>
+                    Robots · {fleetFilter === "all" ? cards.length : `${visibleCards.length} of ${cards.length}`}
+                  </h2>
+                  {cards.length > 0 && (
+                    <button
+                      onClick={() => void parkAll()}
+                      style={{
+                        marginLeft: "auto",
+                        padding: "0.2rem 0.6rem",
+                        borderRadius: 999,
+                        border: `1px solid ${theme.border}`,
+                        background: "transparent",
+                        color: theme.textDim,
+                        cursor: "pointer",
+                        fontSize: "0.72rem",
+                      }}
+                    >
+                      Park all
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
                   {(["all", "driving", "waiting", "charging", "idle", "offline"] as const).map((f) => {
                     const active = fleetFilter === f;
