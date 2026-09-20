@@ -103,6 +103,33 @@ describe("site schema", () => {
     ).toThrow(/unique/);
   });
 
+  test("location entry must reference a known node", () => {
+    const base = {
+      name: "s",
+      nodes: [
+        { id: "a", x: 0, y: 0 },
+        { id: "b", x: 5, y: 0 },
+      ],
+      links: [],
+    };
+    expect(
+      parseSite(
+        JSON.stringify({
+          ...base,
+          locations: [{ id: "dock", dropPose: { x: 1, y: 1 }, entry: "a" }],
+        }),
+      ).locations?.[0]?.entry,
+    ).toBe("a");
+    expect(() =>
+      parseSite(
+        JSON.stringify({
+          ...base,
+          locations: [{ id: "dock", dropPose: { x: 1, y: 1 }, entry: "ghost" }],
+        }),
+      ),
+    ).toThrow(/known entry nodes/);
+  });
+
   test("parking entry must reference a known node", () => {
     const nodes = [
       { id: "a", x: 0, y: 0 },

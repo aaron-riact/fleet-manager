@@ -130,6 +130,8 @@ def main():
             loc["pickPose"] = pose(mpick.group(1))
         if mdrop:
             loc["dropPose"] = pose(mdrop.group(1))
+        if mid.group(1) in entries:
+            loc["entry"] = entries[mid.group(1)]
         locations.append(loc)
 
     mimg = re.search(r"imageUri:\s*'([^']+)'", block)

@@ -103,6 +103,8 @@ export const SiteLocationSchema = z
     zone: z.string().min(1).optional(),
     pickPose: SitePoseSchema.optional(),
     dropPose: SitePoseSchema.optional(),
+    /** Graph node this station hangs off (approach tours start here). */
+    entry: z.string().min(1).optional(),
   })
   .refine((l) => l.pickPose !== undefined || l.dropPose !== undefined, {
     message: "location needs a pick pose, a drop pose, or both",
@@ -153,6 +155,8 @@ export const SiteSchema = z
       for (const location of site.locations ?? []) {
         if (taken.has(location.id)) return false;
         taken.add(location.id);
+        // station entries hang off known graph nodes, like parking
+        if (location.entry !== undefined && !ids.has(location.entry)) return false;
       }
       return true;
     },
