@@ -10,10 +10,13 @@ import {
 
 export interface StationDock {
   station: string;
-  /** Trolley slot: midpoint of the pick→drop segment, angled along it. */
+  /** Trolley slot: centered on the drop diamond (pick stance when dropless). */
   x: number;
   y: number;
-  /** Segment angle: pick-stance to drop-stance. The robot docks along it. */
+  /**
+   * Long-axis angle: perpendicular to the pick→drop segment, so the side
+   * faces the robot standing at either stance looking at the slot.
+   */
   theta: number;
 }
 
@@ -47,35 +50,37 @@ function stanceFor(site: Site, stationId: string, role: "pickup" | "dropoff"): S
 }
 
 /**
- * Where a station's trolley waits: the midpoint of the pick→drop segment,
- * angled along it. The pick arrow aims down the segment and the drop
- * diamond marks its far end, so the slot is documented by the station
- * geometry itself — no derived offsets. Shared by the maneuver (dock
- * params) and the map markers so the robot drives to the rectangle it
- * sees. Single-pose stations fall back to facing-projected (there is no
- * segment to read).
+ * Where a station's trolley waits: centered on the drop diamond, long
+ * side facing the stances. The segment angle comes straight from the
+ * pick→drop coords (perpendicular); single-pose stations fall back to
+ * facing-perpendicular. Shared by the maneuver (dock params) and the map
+ * markers so the robot drives to the rectangle it sees.
  */
 export function stationDock(site: Site, stationId: string): StationDock | undefined {
   const pick = stanceFor(site, stationId, "pickup");
   const drop = stanceFor(site, stationId, "dropoff");
   if (!pick && !drop) return undefined;
-  const a = pick ?? drop!;
-  const b = drop ?? pick!;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  if (dx === 0 && dy === 0) {
+  // Rectangles are π-symmetric: normalize so equivalent angles compare
+  // (and test) equal.
+  const norm = (t: number): number => {
+    let v = t % Math.PI;
+    if (v < 0) v += Math.PI;
+    return v;
+  };
+  if (pick && drop) {
     return {
-      station: a.station,
-      x: a.x + Math.cos(a.theta) * TROLLEY_AHEAD_M,
-      y: a.y + Math.sin(a.theta) * TROLLEY_AHEAD_M,
-      theta: a.theta,
+      station: pick.station,
+      x: drop.x,
+      y: drop.y,
+      theta: norm(Math.atan2(drop.y - pick.y, drop.x - pick.x) + Math.PI / 2),
     };
   }
+  const a = (pick ?? drop)!;
   return {
     station: a.station,
-    x: (a.x + b.x) / 2,
-    y: (a.y + b.y) / 2,
-    theta: Math.atan2(dy, dx),
+    x: a.x + Math.cos(a.theta) * TROLLEY_AHEAD_M,
+    y: a.y + Math.sin(a.theta) * TROLLEY_AHEAD_M,
+    theta: norm(a.theta + Math.PI / 2),
   };
 }
 
@@ -104,10 +109,11 @@ export function pickAttachments(site: Site, nodeId: string): NodeActionAttachmen
     .map((stance) => ({ stance, dock: stationDock(site, stance.station)! }))
     .map(({ stance, dock }) => {
       // Drive to the triangle, face its pointing, drive to the trolley,
-      // match its angle — worst case two half-turns plus the drive.
+      // match its angle, attach, face onward — worst case three
+      // half-turns plus the drive.
       const duration =
         Math.hypot(dock.x - node.x, dock.y - node.y) / TROLLEY_DRIVE_MPS +
-        2 * FULL_TURN_S +
+        3 * FULL_TURN_S +
         TROLLEY_DURATION_MARGIN_S;
       return {
         actionType: PICK_TROLLEY,
@@ -129,14 +135,19 @@ export function dropAttachments(site: Site, nodeId: string): NodeActionAttachmen
   const node = site.nodes.find((n) => n.id === nodeId);
   if (!node) return [];
   return stationsAt(site, nodeId, "dropoff")
-    .map((stance) => ({ stance, dock: stationDock(site, stance.station)! }))
+    .map((stance) => ({
+      stance: stanceFor(site, stance.station, "pickup") ?? stance,
+      dock: stationDock(site, stance.station)!,
+    }))
     .map(({ stance, dock }) => {
-      // Drive to the slot, release, face back toward the drop stance and
-      // exit onto it — the route drives on with no return trip.
-      const exitDist = Math.hypot(stance.x - dock.x, stance.y - dock.y);
+      // Drive to the slot, detach, face the pick triangle, exit toward
+      // it, face onward — worst case three half-turns plus the drive.
+      // The stance here is the pick triangle (exit reference), not the
+      // drop diamond the slot sits on.
+      const exitDist = Math.min(1, Math.hypot(stance.x - dock.x, stance.y - dock.y));
       const duration =
         Math.hypot(dock.x - node.x, dock.y - node.y) / TROLLEY_DRIVE_MPS +
-        2 * FULL_TURN_S +
+        3 * FULL_TURN_S +
         exitDist / TROLLEY_DRIVE_MPS +
         TROLLEY_DURATION_MARGIN_S;
       return {

@@ -55,22 +55,24 @@ describe("trolley world", () => {
 });
 
 describe("stationDock", () => {
-  test("slot sits on the pick→drop segment, angled along it", () => {
-    // bay: pick (5, 0) to drop (5, -1) runs due south.
+  test("slot centers on the drop diamond, long side facing the stances", () => {
+    // bay drop is at (5, -1); segment runs due south so the long side
+    // faces east-west.
     const dock = stationDock(site, "bay")!;
     expect(dock.station).toBe("bay");
     expect(dock.x).toBeCloseTo(5, 9);
-    expect(dock.y).toBeCloseTo(-0.5, 9);
-    expect(dock.theta).toBeCloseTo(-Math.PI / 2, 9);
+    expect(dock.y).toBeCloseTo(-1, 9);
+    expect(dock.theta).toBeCloseTo(0, 9);
   });
 
   test("single-pose stations fall back to facing-projected", () => {
-    // solo pick (6, 0) off entry c (8, 0) faces west: dock at (5, 0).
+    // solo pick (6, 0) off entry c (8, 0) faces west: dock at (5, 0),
+    // long side north-south.
     const dock = stationDock(site, "solo")!;
     expect(dock.station).toBe("solo");
     expect(dock.x).toBeCloseTo(5, 9);
     expect(dock.y).toBeCloseTo(0, 9);
-    expect(dock.theta).toBe(Math.PI);
+    expect(dock.theta).toBeCloseTo(Math.PI / 2, 9);
   });
 
   test("unknown station yields no dock", () => {
@@ -81,7 +83,7 @@ describe("stationDock", () => {
 describe("trolley pick and drop", () => {
   test("pick drives under the trolley; drop sets it down and exits clear", async () => {
     const world = new TrolleyWorld();
-    world.seed("bay", "trolley-1", -Math.PI / 2);
+    world.seed("bay", "trolley-1", 0);
     const fleet = await bootFleet({
       robots: [{ manufacturer: maker, serialNumber: "t1", x: 0, y: 0 }],
       adapterType: TrolleyAdapter,
@@ -108,10 +110,17 @@ describe("trolley pick and drop", () => {
         ],
       );
 
-      // The maneuver left the node for the slot on the pick→drop
-      // segment: bay pick (5, 0) to drop (5, -1) slots at (5, -0.5).
+      // The maneuver left the node for the slot on the drop diamond
+      // at (5, -1), then drove on laden toward c.
       const positions = seen.map((s) => s.agvPosition).filter((p) => p !== undefined);
-      expect(Math.min(...positions.map((p) => p!.y!))).toBeLessThan(-0.4);
+      expect(Math.min(...positions.map((p) => p!.y!))).toBeLessThan(-0.9);
+      const ladenEnRoute = seen.filter(
+        (s) =>
+          (s.loads ?? []).length > 0 &&
+          s.agvPosition?.x !== undefined &&
+          s.agvPosition.x > 5.5,
+      );
+      expect(ladenEnRoute.length).toBeGreaterThan(0);
       // …and the tour drove on to c from the dock.
       const pickEnd = positions[positions.length - 1]!;
       expect(pickEnd.x).toBeCloseTo(8, 0);
@@ -142,17 +151,17 @@ describe("trolley pick and drop", () => {
 
       expect(world.trolleyAt("depot")).toBe("trolley-1");
       expect(world.carrierOf("trolley-1")).toBeUndefined();
-      // Parked along the depot pick→drop segment (due south).
-      expect(world.trolleyPose("depot")?.theta).toBeCloseTo(-Math.PI / 2, 5);
+      // Parked with its long side facing the depot stances.
+      expect(world.trolleyPose("depot")?.theta).toBeCloseTo(0, 5);
       const after = seen.slice(seen.indexOf(last) + 1);
       const dropPositions = after.map((s) => s.agvPosition).filter((p) => p !== undefined);
-      // Slot on the depot segment at (-1, -0.5); faced back toward the
-      // drop stance and exited onto it, facing south.
+      // Slot on the depot diamond at (-1, -1); detached there, faced
+      // the pick triangle (north) and exited 1m onto it.
       expect(Math.min(...dropPositions.map((p) => p!.y!))).toBeLessThan(-0.9);
       const dropEnd = dropPositions[dropPositions.length - 1]!;
       expect(dropEnd.x).toBeCloseTo(-1, 0);
-      expect(dropEnd.y).toBeCloseTo(-1, 0);
-      expect(dropEnd.theta).toBeCloseTo(-Math.PI / 2, 1);
+      expect(dropEnd.y).toBeCloseTo(0, 0);
+      expect(dropEnd.theta).toBeCloseTo(Math.PI / 2, 1);
       const dropStatuses = after.flatMap((s) => (s.actionStates ?? []).map((a) => `${a.actionType}:${a.actionStatus}`));
       expect(dropStatuses).toContain("dropTrolley:FINISHED");
       expect(seen[seen.length - 1]!.loads ?? []).toEqual([]);

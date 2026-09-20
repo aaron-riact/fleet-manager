@@ -41,7 +41,11 @@ export interface TrolleyAdapterOptions extends VirtualAgvAdapterOptions {
   world?: TrolleyWorld;
 }
 
-type Leg = { kind: "turn"; to: number } | { kind: "drive"; x: number; y: number };
+type Leg =
+  | { kind: "turn"; to: number }
+  | { kind: "drive"; x: number; y: number }
+  | { kind: "attach" }
+  | { kind: "detach" };
 
 const num = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -120,7 +124,30 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
       },
     };
     super.executeAction(guard);
-    if (accepted) this.startDriver(action.actionId, action.actionType, params(action));
+    if (accepted) this.startDriver(action.actionId, action.actionType, params(action), context.node?.nodeId);
+  }
+
+  /**
+   * Heading from the action's node toward the next order node, so the
+   * maneuver ends facing onward instead of snapping 180° when traversal
+   * resumes. Reads the controller's active order (nodes beyond the lock
+   * horizon are present but unreleased — direction is all we take).
+   * Unknown when the action sits on the last node or a loop revisits it.
+   */
+  private onwardTheta(nodeId: string | undefined, fromX: number, fromY: number): number | undefined {
+    if (nodeId === undefined) return undefined;
+    const order = (
+      this.controller as unknown as {
+        currentOrder?: { nodes?: Array<{ nodeId?: string; nodePosition?: { x?: number; y?: number } }> };
+      }
+    ).currentOrder;
+    const nodes = order?.nodes;
+    if (!nodes) return undefined;
+    const i = nodes.findIndex((n) => n.nodeId === nodeId);
+    const next = i >= 0 ? nodes[i + 1]?.nodePosition : undefined;
+    if (next?.x === undefined || next?.y === undefined) return undefined;
+    if (Math.hypot(next.x - fromX, next.y - fromY) < 0.2) return undefined;
+    return Math.atan2(next.y - fromY, next.x - fromX);
   }
 
   override cancelAction(context: ActionContext): void {
@@ -214,25 +241,54 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
     };
   }
 
+  private trolleyLoad(trolleyId: string): Load {
+    return {
+      loadId: trolleyId,
+      loadType: "Trolley",
+      loadDimensions: { length: 1, width: 0.8, height: 1.2 },
+      weight: 50,
+    };
+  }
+
+  /** Attach mid-maneuver (at the slot); the finish handler retries if the plan overran. */
+  private doAttach(station: string | undefined): void {
+    if (station === undefined || this.carried !== undefined) return;
+    const serial = this.controller.agvId.serialNumber ?? "unknown";
+    const picked = this.world.trolleyAt(station);
+    if (picked === undefined || this.world.carrierOf(picked) !== undefined) return;
+    this.world.attach(picked, serial);
+    this.carried = picked;
+    this.controller.updatePartialState({ loads: [this.trolleyLoad(picked)] }, true);
+  }
+
+  /** Detach mid-maneuver (at the slot); the finish handler retries if the plan overran. */
+  private doDetach(station: string | undefined, theta: number | undefined): void {
+    if (station === undefined || this.carried === undefined || theta === undefined) return;
+    const load = this.carried;
+    try {
+      this.world.place(station, load, theta);
+    } catch {
+      return;
+    }
+    this.carried = undefined;
+    this.controller.updatePartialState({ loads: [] }, true);
+  }
+
   private finishPick(station: string | undefined): { loads: Load[] } {
     const serial = this.controller.agvId.serialNumber ?? "unknown";
+    if (station !== undefined && this.carried !== undefined && this.world.carrierOf(this.carried) === serial) {
+      return { loads: [this.trolleyLoad(this.carried)] };
+    }
     const picked = station === undefined ? undefined : this.world.trolleyAt(station);
     if (picked === undefined || this.world.carrierOf(picked) !== undefined) return { loads: [] };
     this.world.attach(picked, serial);
     this.carried = picked;
-    return {
-      loads: [
-        {
-          loadId: picked,
-          loadType: "Trolley",
-          loadDimensions: { length: 1, width: 0.8, height: 1.2 },
-          weight: 50,
-        },
-      ],
-    };
+    return { loads: [this.trolleyLoad(picked)] };
   }
 
   private finishDrop(station: string | undefined): { loads: Load[] } {
+    // Already detached mid-maneuver: nothing left to do.
+    if (this.carried === undefined) return { loads: [] };
     const load = this.carried;
     this.carried = undefined;
     if (load === undefined) return { loads: [] };
@@ -256,42 +312,50 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
     return { loads: [] };
   }
 
-  private startDriver(actionId: string, type: string, p: Record<string, unknown>): void {
+  private startDriver(actionId: string, type: string, p: Record<string, unknown>, nodeId: string | undefined): void {
     this.stopDriver(actionId);
     const start = this.vehicleState.position;
+    const station = str(p["station"]);
     const stanceX = num(p["stanceX"])!;
     const stanceY = num(p["stanceY"])!;
-    const stanceTheta = num(p["stanceTheta"])!;
     const dockX = num(p["dockX"])!;
     const dockY = num(p["dockY"])!;
     // Turn legs that are already aligned complete instantly at execution.
     const legs: Leg[] = [];
     if (type === PICK_TROLLEY) {
       // To the triangle, face where it points, to the trolley, match its
-      // angle — then the pick engages and the tour drives on from there.
-      const trolleyTheta = this.world.trolleyPose(str(p["station"]) ?? "")?.theta;
+      // angle, attach, face onward — the tour drives on laden with no
+      // heading snap.
+      const stanceTheta = num(p["stanceTheta"])!;
+      const trolleyTheta = this.world.trolleyPose(station ?? "")?.theta;
       legs.push({ kind: "drive", x: stanceX, y: stanceY });
       legs.push({ kind: "turn", to: stanceTheta });
       legs.push({ kind: "drive", x: dockX, y: dockY });
       if (trolleyTheta !== undefined) legs.push({ kind: "turn", to: trolleyTheta });
+      legs.push({ kind: "attach" });
+      const onward = this.onwardTheta(nodeId, dockX, dockY);
+      if (onward !== undefined) legs.push({ kind: "turn", to: onward });
     } else {
-      // To the slot, release, face back toward the drop stance and exit
-      // onto it — the route drives on with no return trip. The trolley
-      // keeps the segment angle from the action params.
+      // To the slot, detach, face back toward the pick triangle, exit
+      // toward it, face onward — the route drives on with no return trip.
       const dockTheta = num(p["dockTheta"])!;
       const exitDist = num(p["exitDist"]) ?? 0;
       const back = Math.atan2(stanceY - dockY, stanceX - dockX);
-      const station = str(p["station"]);
       const trolleyTheta = num(p["trolleyTheta"]);
       if (station !== undefined && trolleyTheta !== undefined) this.dropThetas.set(station, trolleyTheta);
       legs.push({ kind: "turn", to: dockTheta });
       legs.push({ kind: "drive", x: dockX, y: dockY });
+      legs.push({ kind: "detach" });
       legs.push({ kind: "turn", to: back });
       legs.push({
         kind: "drive",
         x: dockX + Math.cos(back) * exitDist,
         y: dockY + Math.sin(back) * exitDist,
       });
+      const endX = dockX + Math.cos(back) * exitDist;
+      const endY = dockY + Math.sin(back) * exitDist;
+      const onward = this.onwardTheta(nodeId, endX, endY);
+      if (onward !== undefined) legs.push({ kind: "turn", to: onward });
     }
     this.startDriving(0, 0, true);
     let x = start.x;
@@ -299,10 +363,24 @@ export class TrolleyAdapter extends VirtualAgvAdapter {
     let theta = start.theta;
     let leg = 0;
     const step = 0.2;
+    const dropTheta = type === DROP_TROLLEY ? num(p["trolleyTheta"]) : undefined;
     const timer = setInterval(() => {
       const current = legs[leg];
       if (!current) {
         this.stopDriver(actionId);
+        return;
+      }
+      // Load steps run once, in place: attach at the slot (pick), detach
+      // at the slot (drop) — so turns before/after happen in the right
+      // laden state instead of all at action end.
+      if (current.kind === "attach") {
+        this.doAttach(station);
+        leg += 1;
+        return;
+      }
+      if (current.kind === "detach") {
+        this.doDetach(station, dropTheta);
+        leg += 1;
         return;
       }
       if (current.kind === "turn") {
