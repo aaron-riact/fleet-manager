@@ -28,4 +28,10 @@ describe("zoneRows", () => {
     expect(zoneRows([{ id: "x", zone: "east", pickPose: { x: 0, y: 0 } }], nodes, [])).toEqual([]);
     expect(zoneRows([], nodes, [{ zone: "east", demand: 1 }])).toEqual([]);
   });
+
+  test("authored entry beats geometric nearest", () => {
+    // drop pose sits next to "b", but the map hangs this station off "a"
+    const rows = zoneRows([{ id: "dock", zone: "east", dropPose: { x: 9, y: 0 }, entry: "a" }], nodes, []);
+    expect(rows).toEqual([{ zone: "east", demand: 0, dropNode: "a" }]);
+  });
 });

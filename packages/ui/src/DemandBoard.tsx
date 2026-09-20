@@ -29,7 +29,10 @@ export function zoneRows(
     const zone = location.zone;
     if (!zone || seen.has(zone) || !location.dropPose) continue;
     seen.add(zone);
-    const dropNode = nearestNode({ name: "", nodes, links: [] }, location.dropPose.x, location.dropPose.y);
+    // Authored attachments beat geometry: the map author stated which
+    // graph node serves this station.
+    const dropNode =
+      location.entry ?? nearestNode({ name: "", nodes, links: [] }, location.dropPose.x, location.dropPose.y);
     if (!dropNode) continue;
     rows.push({ zone, demand: counts.get(zone) ?? 0, dropNode });
   }
