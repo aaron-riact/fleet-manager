@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { robotStatus, statusColor, theme } from "./theme";
 import { useToast } from "./Toast";
 import { useConfirm } from "./Confirm";
+import { touchStyle, useNarrow } from "./responsive";
 import type { RobotStatus } from "./theme";
 import type { Backend, LivePose, OrderView } from "./backend";
 import { DEFAULT_POSE_TTL_MS, isFresh } from "@fleet-manager/core";
@@ -104,6 +105,7 @@ export function StatusStrip({
   onChange: (filter: FleetFilter) => void;
 }) {
   const summary = useMemo(() => summarizeCards(cards), [cards]);
+  const narrow = useNarrow();
   return (
     <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
       {(["all", "driving", "waiting", "charging", "idle", "offline"] as const).map((f) => {
@@ -124,6 +126,7 @@ export function StatusStrip({
               color: active ? theme.text : theme.textDim,
               cursor: "pointer",
               fontSize: "0.72rem",
+              ...touchStyle(narrow),
             }}
           >
             {f !== "all" && (
@@ -174,6 +177,7 @@ export function RobotCards({
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const toast = useToast();
   const { confirm } = useConfirm();
+  const narrow = useNarrow();
 
   async function act(serialNumber: string, action: "park" | "cancel") {
     if (!backend || !siteName) return;
@@ -278,7 +282,7 @@ export function RobotCards({
             {backend && siteName && (
               <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.5rem" }}>
                 <button
-                  style={actionButton}
+                  style={{ ...actionButton, ...touchStyle(narrow) }}
                   disabled={!!busy[card.serialNumber]}
                   onClick={() => void act(card.serialNumber, "park")}
                 >
@@ -286,7 +290,7 @@ export function RobotCards({
                 </button>
                 {card.order && (
                   <button
-                    style={actionButton}
+                    style={{ ...actionButton, ...touchStyle(narrow) }}
                     disabled={!!busy[card.serialNumber]}
                     onClick={() => void act(card.serialNumber, "cancel")}
                   >

@@ -12,6 +12,8 @@ import { TaskBoard } from "./TaskBoard";
 import { ToastProvider, useFailedHistoryToasts, useToast } from "./Toast";
 import { ConfirmProvider, useConfirm } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
+import { shellColumns } from "./responsive";
+import { useNarrow } from "./responsive";
 import { MobileShell } from "./MobileShell";
 import { hashFor, parseHash, useHashRoute } from "./routes";
 import { theme } from "./theme";
@@ -136,6 +138,7 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
 
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
   const visibleCards = useMemo(() => filterCards(cards, fleetFilter), [cards, fleetFilter]);
+  const narrow = useNarrow();
   const { confirm } = useConfirm();
 
   async function parkAll() {
@@ -244,7 +247,7 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr) 320px",
+              gridTemplateColumns: shellColumns(narrow),
               gap: "1rem",
               alignItems: "start",
             }}

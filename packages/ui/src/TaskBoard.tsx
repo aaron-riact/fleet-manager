@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { theme } from "./theme";
 import { useToast } from "./Toast";
+import { touchStyle, useNarrow } from "./responsive";
 import type { Backend } from "./backend";
 import type { MapNode, TaskView } from "@fleet-manager/core";
 
@@ -51,6 +52,7 @@ export function TaskBoard({
   const [dropoff, setDropoff] = useState(nodes[1]?.id ?? nodes[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
+  const narrow = useNarrow();
 
   const refresh = useCallback(async () => {
     try {
@@ -125,6 +127,7 @@ export function TaskBoard({
               fontWeight: 600,
               cursor: "pointer",
               fontSize: "0.8rem",
+              ...touchStyle(narrow),
             }}
           >
             {busy ? "…" : "Send"}
@@ -154,6 +157,7 @@ export function TaskBoard({
                     color: theme.textDim,
                     cursor: "pointer",
                     fontSize: "0.72rem",
+                    ...touchStyle(narrow),
                   }}
                 >
                   Withdraw

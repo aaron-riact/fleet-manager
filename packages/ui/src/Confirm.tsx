@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { theme } from "./theme";
+import { touchStyle, useNarrow } from "./responsive";
 
 export interface ConfirmRequest {
   title: string;
@@ -43,6 +44,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const narrow = useNarrow();
   const value = useMemo(() => ({ confirm }), [confirm]);
 
   return (
@@ -93,6 +95,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   color: theme.text,
                   cursor: "pointer",
                   fontSize: "0.85rem",
+                  ...touchStyle(narrow),
                 }}
               >
                 Cancel
@@ -109,6 +112,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   fontWeight: 600,
                   cursor: "pointer",
                   fontSize: "0.85rem",
+                  ...touchStyle(narrow),
                 }}
               >
                 {pending.confirmLabel ?? "Confirm"}

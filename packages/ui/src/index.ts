@@ -15,6 +15,7 @@ export { MobileShell } from "./MobileShell.js";
 export type { MobileShellProps } from "./MobileShell.js";
 export { useFleetSite } from "./useFleetSite.js";
 export type { FleetSiteData } from "./useFleetSite.js";
+export { NARROW_BREAKPOINT_PX, shellColumns, touchStyle, useNarrow } from "./responsive.js";
 export { robotStatus, statusColor, theme } from "./theme.js";
 export type { RobotSnapshot, RobotStatus } from "./theme.js";
 export { createHttpBackend } from "./backend.js";
