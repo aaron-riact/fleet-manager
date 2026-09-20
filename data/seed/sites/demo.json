@@ -22,8 +22,8 @@
     { "id": "p2", "x": 8, "y": 5, "entry": "east" }
   ],
   "locations": [
-    { "id": "dock-1", "name": "Dock 1", "zone": "docks", "pickPose": { "x": 0, "y": 10 }, "dropPose": { "x": 0, "y": 10 } },
-    { "id": "dock-2", "name": "Dock 2", "zone": "docks", "pickPose": { "x": 12, "y": 10 }, "dropPose": { "x": 12, "y": 10 } },
+    { "id": "dock-1", "name": "Dock 1", "zone": "docks", "pickPose": { "x": 0, "y": 10 }, "dropPose": { "x": 0, "y": 10 }, "entry": "northwest" },
+    { "id": "dock-2", "name": "Dock 2", "zone": "docks", "pickPose": { "x": 12, "y": 10 }, "dropPose": { "x": 12, "y": 10 }, "entry": "northeast" },
     { "id": "pickup-bay", "name": "Pickup Bay", "zone": "bays", "pickPose": { "x": 12, "y": 0 } }
   ]
 }
