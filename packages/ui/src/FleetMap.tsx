@@ -113,7 +113,6 @@ export function FleetMap({
           y={underlay.y}
           width={underlay.width}
           height={underlay.height}
-          opacity={0.55}
           preserveAspectRatio="none"
         />
       )}
