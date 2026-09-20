@@ -166,6 +166,8 @@ export class Fleet {
   private readonly activeOrders = new Map<string, ActiveOrder>();
   private readonly pathLockers = new Map<string, PathLocker>();
   private readonly cancelled = new Set<string>();
+  /** Tour-ending action failure reasons, consumed by onOrderProcessed. */
+  private readonly actionFailed = new Map<string, string>();
   private readonly history: OrderHistory[] = [];
   private readonly maxEntries: number;
   private readonly maxAgeMs: number | undefined;
@@ -439,9 +441,41 @@ export class Fleet {
             this.emit();
           }
         },
+        onActionStateChanged: (
+          actionState: { actionStatus: ActionStatus },
+          error: unknown,
+          action: { actionType?: string; blockingType?: BlockingType },
+        ) => {
+          // A failed blocking action does NOT stop the AGV by itself — the
+          // controller keeps working the order. End the tour explicitly so
+          // a failed pick/drop fails the dispatch instead of driving on.
+          // SOFT/NONE failures are deliberately ignored: they opted out of
+          // gating the tour.
+          if (actionState.actionStatus !== ActionStatus.Failed) return;
+          if (action?.blockingType !== BlockingType.Hard) return;
+          const description =
+            typeof error === "object" && error !== null && "errorDescription" in error
+              ? String((error as { errorDescription: unknown }).errorDescription)
+              : `action "${action?.actionType ?? "unknown"}" failed`;
+          void this.failActiveOrder(agvId, serial, description);
+        },
         onOrderProcessed: (error: unknown, _cancelled: boolean, active: boolean) => {
           if (active) return;
           this.pathLockers.delete(serial);
+          const actionReason = this.actionFailed.get(serial);
+          this.actionFailed.delete(serial);
+          if (actionReason !== undefined) {
+            // The tour was cancelled because a blocking action failed: the
+            // operator didn't stop this robot, so it records as failed.
+            this.cancelled.delete(serial);
+            this.activeOrders.delete(serial);
+            finish("failed", actionReason);
+            this.emitDone(serial, "failed");
+            this.emitOrders();
+            this.emit();
+            reject(new Error(actionReason));
+            return;
+          }
           if (this.cancelled.has(serial)) {
             this.cancelled.delete(serial);
             this.activeOrders.delete(serial);
@@ -496,6 +530,23 @@ export class Fleet {
           reject(error);
         });
     });
+  }
+
+  /**
+   * Stop a tour whose blocking action failed. Cancels the order like an
+   * operator stop, but the end records as failed with the action's reason
+   * (see onOrderProcessed). Late arrivals — after the order already ended —
+   * are ignored.
+   */
+  private async failActiveOrder(agvId: AgvId, serial: string, reason: string): Promise<void> {
+    if (!this.activeOrders.has(serial) || this.actionFailed.has(serial)) return;
+    this.actionFailed.set(serial, reason);
+    try {
+      await this.cancel(agvId);
+    } catch {
+      // The order may have ended under us; onOrderProcessed still picks up
+      // the recorded reason if it hasn't run yet.
+    }
   }
 
   /**
