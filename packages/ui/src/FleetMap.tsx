@@ -154,29 +154,23 @@ export function FleetMap({
           const state = nodeState.get(node.id);
           const held = (state?.owners.length ?? 0) > 0;
           const contested = !held && (state?.waiters.length ?? 0) > 0;
+          // Translucent dark fill: the light outline must read against
+          // bright map imagery, while the image still shows through.
+          // The center dot marks the exact waypoint fix.
+          const dot = held ? "#f0883e" : contested ? "#e3b341" : "#e6edf3";
           return (
             <g key={node.id} id={`node-${node.id}`}>
+              <title>{node.id}</title>
               <circle
                 cx={p.x}
                 cy={p.y}
                 r={node.radius ?? 0.25}
-                fill={held ? "#f0883e22" : "#0b0e14"}
-                stroke={held ? "#f0883e" : contested ? "#e3b341" : "#8b949e"}
+                fill={held ? "#f0883e22" : "rgba(7, 11, 18, 0.45)"}
+                stroke={held ? "#f0883e" : contested ? "#e3b341" : "#e6edf3"}
                 strokeWidth={0.06}
                 strokeDasharray={contested ? "0.15 0.1" : undefined}
               />
-              <text
-                x={p.x}
-                y={p.y - (node.radius ?? 0.25) - 0.15}
-                textAnchor="middle"
-                fontSize={0.3}
-                fill="#8b949e"
-                stroke="#0b0e14"
-                strokeWidth={0.06}
-                style={{ paintOrder: "stroke" }}
-              >
-                {node.id}
-              </text>
+              <circle cx={p.x} cy={p.y} r={0.07} fill={dot} />
             </g>
           );
         })}
@@ -197,7 +191,6 @@ export function FleetMap({
                   y2={e.y.toFixed(3)}
                   stroke="#8b949e"
                   strokeWidth={0.04}
-                  strokeDasharray="0.2 0.15"
                   opacity={0.7}
                 />
               )}
@@ -223,14 +216,27 @@ export function FleetMap({
           const color = zoneColor(zone || undefined);
           return (
             <g key={zone || "unzoned"} id={`zone-${zone || "unzoned"}`}>
-              {locations.map((location) =>
+              {locations.map((location) => {
+                const entry = location.entry ? byId.get(location.entry) : undefined;
+                const entrySvg = entry ? toSvg(entry.x, entry.y, bounds) : undefined;
                 // pick and drop can sit apart; one marker each so the map
                 // shows where a robot is actually sent
-                stationPoses(location).map(({ kind, pose }) => {
+                return stationPoses(location).map(({ kind, pose }) => {
                   const p = toSvg(pose.x, pose.y, bounds);
                   const s = 0.28;
                   return (
                     <g key={`${location.id}-${kind}`} id={`loc-${location.id}-${kind}`}>
+                      {entrySvg && kind === "drop" && (
+                        <line
+                          x1={p.x.toFixed(3)}
+                          y1={p.y.toFixed(3)}
+                          x2={entrySvg.x.toFixed(3)}
+                          y2={entrySvg.y.toFixed(3)}
+                          stroke={color}
+                          strokeWidth={0.04}
+                          opacity={0.7}
+                        />
+                      )}
                       <polygon
                         points={`${p.x},${(p.y - s).toFixed(3)} ${(p.x + s).toFixed(3)},${p.y} ${p.x},${(p.y + s).toFixed(3)} ${(p.x - s).toFixed(3)},${p.y}`}
                         fill="transparent"
@@ -248,7 +254,7 @@ export function FleetMap({
                       </text>
                     </g>
                   );
-                }),
+                })}
               )}
             </g>
           );
