@@ -25,6 +25,8 @@ export interface MobileShellProps {
   onTabChange: (tab: MobileTab) => void;
   /** Pinned initial site (deep links); the stored selection wins afterwards. */
   initialSite?: string | null;
+  /** Called alongside the internal switch so hosts can persist it (hash). */
+  onSiteChange?: (site: string) => void;
 }
 
 const page: React.CSSProperties = {
@@ -45,9 +47,13 @@ const glass: React.CSSProperties = {
   backdropFilter: "blur(10px)",
 };
 
-function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange, initialSite }: MobileShellProps) {
+function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange, initialSite, onSiteChange }: MobileShellProps) {
   const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
     useFleetSite(backend, initialSite);
+  const changeSite = (name: string) => {
+    setSiteName(name);
+    onSiteChange?.(name);
+  };
   useFailedHistoryToasts(history);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
@@ -90,7 +96,7 @@ function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange, 
             <select
               aria-label="Site"
               value={siteName ?? site.name}
-              onChange={(e) => setSiteName(e.target.value)}
+              onChange={(e) => changeSite(e.target.value)}
               style={{ fontSize: "0.7rem", color: theme.text, border: `1px solid ${theme.border}`, borderRadius: 999, padding: "0.1rem 0.4rem", background: theme.bg, cursor: "pointer", maxWidth: "8rem" }}
             >
               {sites.map((s) => (

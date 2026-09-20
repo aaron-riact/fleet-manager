@@ -121,6 +121,8 @@ export interface ShellProps {
   extraPanel?: React.ReactNode;
   /** Pinned initial site (deep links); the stored selection wins afterwards. */
   initialSite?: string | null;
+  /** Called alongside the internal switch so hosts can persist it (hash). */
+  onSiteChange?: (site: string) => void;
 }
 
 export function Shell(props: ShellProps) {
@@ -133,10 +135,14 @@ export function Shell(props: ShellProps) {
   );
 }
 
-function ShellView({ session, backend, onLogout, extraPanel, initialSite }: ShellProps) {
+function ShellView({ session, backend, onLogout, extraPanel, initialSite, onSiteChange }: ShellProps) {
   const toast = useToast();
   const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
     useFleetSite(backend, initialSite);
+  const changeSite = (name: string) => {
+    setSiteName(name);
+    onSiteChange?.(name);
+  };
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
   useFailedHistoryToasts(history);
@@ -199,7 +205,7 @@ function ShellView({ session, backend, onLogout, extraPanel, initialSite }: Shel
             <select
               aria-label="Site"
               value={siteName ?? site.name}
-              onChange={(e) => setSiteName(e.target.value)}
+              onChange={(e) => changeSite(e.target.value)}
               style={{
                 fontSize: "0.75rem",
                 color: theme.text,
@@ -392,6 +398,15 @@ export default function App({
   const route = parseHash(hash);
   // The tools tab only exists where an extra panel is mounted (demo).
   const tab = route.tab === "tools" && !extraPanel ? "map" : route.tab;
+  // Explicit prop (demo boot) wins; otherwise the hash carries the site
+  // so refresh preserves it, falling back to stored/first inside the hook.
+  const effectiveSite = initialSite ?? route.site;
+  const changeSite = (name: string) =>
+    navigate(
+      route.shell === "mobile"
+        ? hashFor({ shell: "mobile", tab, site: name })
+        : hashFor({ shell: "desktop", tab: "map", site: name }),
+    );
 
   return (
     <div style={page}>
@@ -403,11 +418,21 @@ export default function App({
             onLogout={handleLogout}
             extraPanel={extraPanel}
             tab={tab}
-            onTabChange={(t) => navigate(hashFor({ shell: "mobile", tab: t }))}
-            initialSite={initialSite}
+            onTabChange={(t) =>
+              navigate(hashFor({ shell: "mobile", tab: t, site: route.site }))
+            }
+            initialSite={effectiveSite}
+            onSiteChange={changeSite}
           />
         ) : (
-          <Shell session={effective} backend={backend} onLogout={handleLogout} extraPanel={extraPanel} initialSite={initialSite} />
+          <Shell
+            session={effective}
+            backend={backend}
+            onLogout={handleLogout}
+            extraPanel={extraPanel}
+            initialSite={effectiveSite}
+            onSiteChange={changeSite}
+          />
         )
       ) : (
         <LoginForm onLogin={handleLogin} />

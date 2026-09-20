@@ -8,7 +8,7 @@ import type { DemoFleet } from "./fleet";
 import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
 import { Fleet } from "@fleet-manager/vda";
 import type { ActiveOrder } from "@fleet-manager/vda";
-import { App } from "@fleet-manager/ui";
+import { App, hashFor, parseHash } from "@fleet-manager/ui";
 import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
 import { SITES, selectInitialSite } from "./sites";
@@ -35,17 +35,31 @@ function envSite(): string | undefined {
 
 function hashSite(): string | undefined {
   if (typeof window === "undefined") return undefined;
-  const match = window.location.hash.match(/^#\/site=([^/]+)\/?$/);
-  return match?.[1] && SITES[match[1]] ? match[1] : undefined;
+  const site = parseHash(window.location.hash).site;
+  return site && SITES[site] ? site : undefined;
+}
+
+function navigateSite(name: string): void {
+  // Preserve the shell/tab route, swapping only the site: refresh and
+  // back/forward then keep the full view state, not just the map.
+  const route = parseHash(window.location.hash);
+  window.location.hash = hashFor({ ...route, site: name });
 }
 
 export default function Director() {
-  // Read once at boot: afterwards the in-app switcher owns selection via
-  // onNavigate below. The hash is deliberately not written back — App's
-  // own `#/` and `#/m/` routes own window.location.hash after boot, and
-  // the two must never clobber each other.
+  // Hash is the source of truth after boot: the in-app switcher writes
+  // it (via onNavigate), this listener remounts the world for it, and
+  // App's own shell/tab routes ride along untouched inside the same hash.
   const [siteName, setSiteName] = useState(() => hashSite() ?? envSite() ?? selectInitialSite());
-  return <DirectorWorld key={siteName} siteName={siteName} onNavigate={setSiteName} />;
+  useEffect(() => {
+    const onChange = () => {
+      const next = hashSite() ?? envSite() ?? selectInitialSite();
+      setSiteName((prev) => (prev === next ? prev : next));
+    };
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+  return <DirectorWorld key={siteName} siteName={siteName} onNavigate={navigateSite} />;
 }
 
 function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate: (name: string) => void }) {
