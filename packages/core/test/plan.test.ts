@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shortestPath } from "../src/plan.js";
+import { nearestNode, shortestPath } from "../src/plan.js";
 import type { Site } from "../src/site.js";
 
 const site: Site = {
@@ -35,5 +35,14 @@ describe("shortestPath", () => {
     expect(shortestPath(site, "a", "island")).toBeUndefined();
     expect(shortestPath(site, "a", "ghost")).toBeUndefined();
     expect(shortestPath(site, "ghost", "a")).toBeUndefined();
+  });
+});
+
+describe("nearestNode", () => {
+  test("finds the closest graph node to a free coordinate", () => {
+    expect(nearestNode(site, 0.2, 0.1)).toBe("a");
+    expect(nearestNode(site, 9.9, 0.1)).toBe("c");
+    // d sits at (5,6): closest to the midpoint below it
+    expect(nearestNode(site, 5, 2)).toBe("b");
   });
 });

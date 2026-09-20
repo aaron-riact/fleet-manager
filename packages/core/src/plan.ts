@@ -55,3 +55,21 @@ export function shortestPath(site: Site, from: string, to: string): string[] | u
   while (path[0] !== from) path.unshift(prev.get(path[0]!)!);
   return path;
 }
+
+/**
+ * Nearest graph node to a free coordinate (station poses address work,
+ * not graph nodes). Ties break to the earlier node — deterministic.
+ * Pure, tested.
+ */
+export function nearestNode(site: Site, x: number, y: number): string | undefined {
+  let best: string | undefined;
+  let bestD = Infinity;
+  for (const n of site.nodes) {
+    const d = (n.x - x) ** 2 + (n.y - y) ** 2;
+    if (d < bestD) {
+      best = n.id;
+      bestD = d;
+    }
+  }
+  return best;
+}
