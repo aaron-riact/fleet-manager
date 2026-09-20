@@ -26,6 +26,45 @@ export interface TaskView {
 /** Terminal tasks retained per site (queued/assigned never dropped). */
 export const MAX_RETAINED_TASKS = 200;
 
+/**
+ * A task-input problem with its HTTP status attached. Shared by the
+ * server endpoints and the demo so both reject the same inputs with
+ * the same messages — validation lives here once, status mapping
+ * stays with each caller (HTTP codes are a transport concern).
+ */
+export interface RouteIssue {
+  status: 400 | 409;
+  message: string;
+}
+
+/** Single node reference check (always a 400 when wrong). */
+export function checkNode(
+  site: Pick<Site, "nodes">,
+  label: string,
+  id: unknown,
+): RouteIssue | undefined {
+  if (typeof id !== "string" || !id) return { status: 400, message: `${label} required` };
+  if (!site.nodes.some((n) => n.id === id))
+    return { status: 400, message: `${label} must be a known node` };
+  return undefined;
+}
+
+/** Pickup→dropoff pair check for dispatch (400s, then 409 when unroutable). */
+export function checkRoutePair(
+  site: Site,
+  pickup: unknown,
+  dropoff: unknown,
+): RouteIssue | undefined {
+  if (typeof pickup !== "string" || !pickup) return { status: 400, message: "pickup required" };
+  if (typeof dropoff !== "string" || !dropoff) return { status: 400, message: "dropoff required" };
+  const ids = new Set(site.nodes.map((n) => n.id));
+  if (!ids.has(pickup) || !ids.has(dropoff))
+    return { status: 400, message: "pickup and dropoff must be known nodes" };
+  if (!shortestPath(site, pickup, dropoff))
+    return { status: 409, message: `no route from "${pickup}" to "${dropoff}"` };
+  return undefined;
+}
+
 let taskCounter = 1;
 
 /** Next task id (`task-N`, per process). */

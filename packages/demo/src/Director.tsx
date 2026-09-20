@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchConnections, watchRobots } from "@fleet-manager/vda";
-import { addDemand, consumeDemand, demandList, freeSpot, nextTaskId, occupiedSpots, pumpSiteTasks, shortestPath } from "@fleet-manager/core";
+import { addDemand, checkNode, checkRoutePair, consumeDemand, demandList, freeSpot, nextTaskId, occupiedSpots, pumpSiteTasks } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
@@ -103,13 +103,8 @@ export default function Director() {
         const svc = svcRef.current;
         if (!svc) throw new Error("fleet not booted yet");
         const demoSite = site as Site;
-        const ids = new Set(demoSite.nodes.map((n) => n.id));
-        if (!ids.has(input.pickup) || !ids.has(input.dropoff)) {
-          throw new Error("pickup and dropoff must be known nodes");
-        }
-        if (!shortestPath(demoSite, input.pickup, input.dropoff)) {
-          throw new Error(`no route from "${input.pickup}" to "${input.dropoff}"`);
-        }
+        const issue = checkRoutePair(demoSite, input.pickup, input.dropoff);
+        if (issue) throw new Error(issue.message);
         const id = nextTaskId();
         tasksRef.current.set(id, {
           id,
@@ -140,9 +135,8 @@ export default function Director() {
         const svc = svcRef.current;
         if (!svc) throw new Error("fleet not booted yet");
         const demoSite = site as Site;
-        if (!demoSite.nodes.some((n) => n.id === input.dropoff)) {
-          throw new Error("dropoff must be a known node");
-        }
+        const dropoffIssue = checkNode(demoSite, "dropoff", input.dropoff);
+        if (dropoffIssue) throw new Error(dropoffIssue.message);
         if (input.zone !== undefined && !input.zone) {
           throw new Error("zone must be a non-empty string");
         }
@@ -165,12 +159,10 @@ export default function Director() {
         if (!task) throw new Error("unknown task");
         if (task.status !== "requested") throw new Error("only requested tasks take a pickup");
         const demoSite = site as Site;
-        if (!demoSite.nodes.some((n) => n.id === input.pickup)) {
-          throw new Error("pickup must be a known node");
-        }
-        if (!shortestPath(demoSite, input.pickup, task.dropoff)) {
-          throw new Error(`no route from "${input.pickup}" to "${task.dropoff}"`);
-        }
+        const pickupIssue = checkNode(demoSite, "pickup", input.pickup);
+        if (pickupIssue) throw new Error(pickupIssue.message);
+        const routeIssue = checkRoutePair(demoSite, input.pickup, task.dropoff);
+        if (routeIssue) throw new Error(routeIssue.message);
         task.pickup = input.pickup;
         task.status = "queued";
         pumpDemoTasks();

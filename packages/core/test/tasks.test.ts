@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_RETAINED_TASKS, pumpSiteTasks } from "../src/tasks.js";
+import { MAX_RETAINED_TASKS, checkNode, checkRoutePair, pumpSiteTasks } from "../src/tasks.js";
 import type { TaskPump, TaskView } from "../src/tasks.js";
 import type { Site } from "../src/site.js";
 
@@ -60,6 +60,31 @@ const queued = (id: string, pickup = "a", dropoff = "c"): TaskView => ({
   dropoff,
   status: "queued",
   createdAt: 1_000,
+});
+
+describe("task input checks", () => {
+  const island = { ...site, nodes: [...site.nodes, { id: "island", x: 99, y: 99 }] };
+
+  test("checkNode names the missing or unknown end", () => {
+    expect(checkNode(site, "pickup", "a")).toBeUndefined();
+    expect(checkNode(site, "pickup", undefined)).toEqual({ status: 400, message: "pickup required" });
+    expect(checkNode(site, "pickup", "")).toEqual({ status: 400, message: "pickup required" });
+    expect(checkNode(site, "dropoff", "ghost")).toEqual({ status: 400, message: "dropoff must be a known node" });
+  });
+
+  test("checkRoutePair orders missing, unknown, then unroutable", () => {
+    expect(checkRoutePair(site, "a", "c")).toBeUndefined();
+    expect(checkRoutePair(site, undefined, "c")).toEqual({ status: 400, message: "pickup required" });
+    expect(checkRoutePair(site, "a", undefined)).toEqual({ status: 400, message: "dropoff required" });
+    expect(checkRoutePair(site, "a", "ghost")).toEqual({
+      status: 400,
+      message: "pickup and dropoff must be known nodes",
+    });
+    expect(checkRoutePair(island, "a", "island")).toEqual({
+      status: 409,
+      message: 'no route from "a" to "island"',
+    });
+  });
 });
 
 describe("pumpSiteTasks", () => {

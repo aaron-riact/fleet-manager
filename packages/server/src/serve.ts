@@ -4,6 +4,8 @@ import type { ActiveOrder, OrderHistory, RobotConnection, RobotPose, SiteFleet }
 import {
   DEFAULT_POSE_TTL_MS,
   addDemand,
+  checkNode,
+  checkRoutePair,
   consumeDemand,
   demandList,
   freeSpot,
@@ -12,7 +14,6 @@ import {
   nextTaskId,
   occupiedSpots,
   pumpSiteTasks,
-  shortestPath,
 } from "@fleet-manager/core";
 import type { DemandCounts, LockSnapshot, Site, TaskView, ZoneDemand } from "@fleet-manager/core";
 import { loadUsersFile } from "./usersFile.js";
@@ -601,27 +602,16 @@ export function buildApp(
       if (!me.sites.includes(ctx.site.name))
         throw Object.assign(new Error("forbidden site"), { status: 403 });
       const input = (body ?? {}) as { pickup?: unknown; dropoff?: unknown };
-      if (typeof input.pickup !== "string" || !input.pickup) {
-        throw Object.assign(new Error("pickup required"), { status: 400 });
-      }
-      if (typeof input.dropoff !== "string" || !input.dropoff) {
-        throw Object.assign(new Error("dropoff required"), { status: 400 });
-      }
-      const ids = new Set(ctx.site.nodes.map((n) => n.id));
-      if (!ids.has(input.pickup) || !ids.has(input.dropoff)) {
-        throw Object.assign(new Error("pickup and dropoff must be known nodes"), { status: 400 });
-      }
-      if (!shortestPath(ctx.site, input.pickup, input.dropoff)) {
-        throw Object.assign(
-          new Error(`no route from "${input.pickup}" to "${input.dropoff}"`),
-          { status: 409 },
-        );
-      }
+      const issue = checkRoutePair(ctx.site, input.pickup, input.dropoff);
+      if (issue) throw Object.assign(new Error(issue.message), { status: issue.status });
+      // checkRoutePair proved both ends; the cast only tells TS what it proved.
+      const pickup = input.pickup as string;
+      const dropoff = input.dropoff as string;
       const id = nextTaskId();
       ctx.tasks.set(id, {
         id,
-        pickup: input.pickup,
-        dropoff: input.dropoff,
+        pickup,
+        dropoff,
         status: "queued",
         createdAt: Date.now(),
       });
@@ -639,19 +629,16 @@ export function buildApp(
       if (!me.sites.includes(ctx.site.name))
         throw Object.assign(new Error("forbidden site"), { status: 403 });
       const input = (body ?? {}) as { dropoff?: unknown; zone?: unknown };
-      if (typeof input.dropoff !== "string" || !input.dropoff) {
-        throw Object.assign(new Error("dropoff required"), { status: 400 });
-      }
-      if (!ctx.site.nodes.some((n) => n.id === input.dropoff)) {
-        throw Object.assign(new Error("dropoff must be a known node"), { status: 400 });
-      }
+      const dropoffIssue = checkNode(ctx.site, "dropoff", input.dropoff);
+      if (dropoffIssue) throw Object.assign(new Error(dropoffIssue.message), { status: dropoffIssue.status });
       if (input.zone !== undefined && (typeof input.zone !== "string" || !input.zone)) {
         throw Object.assign(new Error("zone must be a non-empty string"), { status: 400 });
       }
       const id = nextTaskId();
       ctx.tasks.set(id, {
         id,
-        dropoff: input.dropoff,
+        // checkNode proved the dropoff above; the cast tells TS what it proved.
+        dropoff: input.dropoff as string,
         ...(input.zone === undefined ? {} : { zone: input.zone }),
         status: "requested",
         createdAt: Date.now(),
@@ -675,19 +662,13 @@ export function buildApp(
         throw Object.assign(new Error("only requested tasks take a pickup"), { status: 409 });
       }
       const input = (body ?? {}) as { pickup?: unknown };
-      if (typeof input.pickup !== "string" || !input.pickup) {
-        throw Object.assign(new Error("pickup required"), { status: 400 });
-      }
-      if (!ctx.site.nodes.some((n) => n.id === input.pickup)) {
-        throw Object.assign(new Error("pickup must be a known node"), { status: 400 });
-      }
-      if (!shortestPath(ctx.site, input.pickup, task.dropoff)) {
-        throw Object.assign(
-          new Error(`no route from "${input.pickup}" to "${task.dropoff}"`),
-          { status: 409 },
-        );
-      }
-      task.pickup = input.pickup;
+      const pickupIssue = checkNode(ctx.site, "pickup", input.pickup);
+      if (pickupIssue) throw Object.assign(new Error(pickupIssue.message), { status: pickupIssue.status });
+      // checkNode proved the pickup; the cast tells TS what it proved.
+      const pickup = input.pickup as string;
+      const routeIssue = checkRoutePair(ctx.site, pickup, task.dropoff);
+      if (routeIssue) throw Object.assign(new Error(routeIssue.message), { status: routeIssue.status });
+      task.pickup = pickup;
       task.status = "queued";
       pumpSiteTasks({ site: ctx.site, fleet: ctx.fleet, poses: ctx.poses, tasks: ctx.tasks, demands: ctx.demands, poseTtlMs });
       return { ok: true, taskId: id };
