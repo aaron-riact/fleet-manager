@@ -6,6 +6,7 @@ import {
   groupByZone,
   headingVector,
   indexNodes,
+  laneShift,
   scaleBarLength,
   stationPoses,
   toSvg,
@@ -31,6 +32,14 @@ describe("map projection", () => {
 
   test("node index", () => {
     expect(indexNodes(nodes).get("b")).toEqual({ id: "b", x: 10, y: 8 });
+  });
+
+  test("laneShift offsets opposing directions to opposite sides", () => {
+    // horizontal segment, SVG y-down: +side goes down-screen
+    expect(laneShift(0, 0, 10, 0, 1)).toEqual({ mx: 5, my: 0.16 });
+    expect(laneShift(0, 0, 10, 0, -1)).toEqual({ mx: 5, my: -0.16 });
+    // degenerate segment stays centered instead of dividing by zero
+    expect(laneShift(3, 3, 3, 3, 1)).toEqual({ mx: 3, my: 3 });
   });
 
   test("grid lines snap to spacing and cover the bounds", () => {

@@ -64,6 +64,29 @@ export function headingVector(theta: number): { dx: number; dy: number } {
   return { dx: Math.cos(theta), dy: -Math.sin(theta) };
 }
 
+/**
+ * Midpoint of a segment shifted sideways, for drawing opposing directions
+ * as dual-carriageway lanes instead of overlapping tip-to-tip arrows.
+ * `side` +1/-1 picks the lane; unit-length segments are guarded.
+ * Pure, tested.
+ */
+export function laneShift(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  side: 1 | -1,
+  lane = 0.16,
+): { mx: number; my: number } {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  return {
+    mx: (ax + bx) / 2 + (-dy / len) * lane * side,
+    my: (ay + by) / 2 + (dx / len) * lane * side,
+  };
+}
+
 /** viewBox string with padding, for `<svg viewBox>`. */
 export function viewBoxFor(bounds: Bounds, pad = 1): string {
   const w = bounds.maxX - bounds.minX;

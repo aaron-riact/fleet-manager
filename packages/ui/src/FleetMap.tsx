@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { LockSnapshot, ParkingSpot, Site } from "@fleet-manager/core";
-import { boundsOf, gridLines, gridSpacing, groupByZone, headingVector, indexNodes, scaleBarLength, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map";
+import { boundsOf, gridLines, gridSpacing, groupByZone, headingVector, indexNodes, laneShift, scaleBarLength, stationPoses, toSvg, underlayRect, viewBoxFor, zoneColor } from "./map";
 
 export interface RobotDot {
   serialNumber: string;
@@ -184,8 +184,10 @@ export function FleetMap({
               if (!origin || !other) return null;
               const a = toSvg(origin.x, origin.y, bounds);
               const b = toSvg(other.x, other.y, bounds);
-              const mx = (a.x + b.x) / 2;
-              const my = (a.y + b.y) / 2;
+              // Own lane per direction: opposing arrows sit side by side
+              // instead of collapsing tip-to-tip into one blob.
+              const side = (leg.from === edge.fromId ? 1 : -1) as 1 | -1;
+              const { mx, my } = laneShift(a.x, a.y, b.x, b.y, side);
               const ang = Math.atan2(b.y - a.y, b.x - a.x);
               const s = 0.28;
               const tip = `${(mx + Math.cos(ang) * s).toFixed(3)},${(my + Math.sin(ang) * s).toFixed(3)}`;

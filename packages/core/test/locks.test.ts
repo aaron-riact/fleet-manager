@@ -76,4 +76,23 @@ describe("fleet locks", () => {
       { fromId: "a", toId: "b", owners: [], held: false, legs: [{ from: "a", owners: [] }, { from: "b", owners: [] }] },
     ]);
   });
+
+  test("a turn-back holds both legs of the shared link", () => {
+    // The locker reserves ahead until a safe stop, so a loop tour holds
+    // the same link both ways at its start. The UI draws one arrow per
+    // leg; this pins the shape it depends on.
+    const locks = buildLocks(corridor);
+    const r1 = locks.lockerFor("r1").makePathLocker(["a", "b", "a"], () => {});
+    r1.arrivedAt(0);
+    expect(locks.snapshot().edgeLocks).toEqual([
+      {
+        fromId: "a",
+        toId: "b",
+        owners: ["r1"],
+        held: true,
+        legs: [{ from: "a", owners: ["r1"] }, { from: "b", owners: ["r1"] }],
+      },
+    ]);
+    r1.clearAllPathLocks();
+  });
 });
