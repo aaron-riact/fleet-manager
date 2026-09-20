@@ -1,29 +1,593 @@
 {
   "name": "coalescent",
   "nodes": [
-    { "id": "west", "x": 0, "y": 4, "radius": 0.3 },
-    { "id": "northwest", "x": 0, "y": 10, "radius": 0.3 },
-    { "id": "northeast", "x": 12, "y": 10, "radius": 0.3 },
-    { "id": "east", "x": 12, "y": 4, "radius": 0.3 },
-    { "id": "southeast", "x": 12, "y": 0, "radius": 0.3 },
-    { "id": "southwest", "x": 0, "y": 0, "radius": 0.3 }
+    {
+      "id": "160.427:266.831",
+      "x": -0.029,
+      "y": 8.958,
+      "radius": 1.1
+    },
+    {
+      "id": "180.029:333.508",
+      "x": 0.951,
+      "y": 5.625,
+      "radius": 1.1
+    },
+    {
+      "id": "156.295:333.169",
+      "x": -0.235,
+      "y": 5.642,
+      "radius": 1.1
+    },
+    {
+      "id": "157.348:397.385",
+      "x": -0.183,
+      "y": 2.431,
+      "radius": 1.1
+    },
+    {
+      "id": "180.445:396.430",
+      "x": 0.972,
+      "y": 2.478,
+      "radius": 1.1
+    },
+    {
+      "id": "181.588:488.638",
+      "x": 1.029,
+      "y": -2.132,
+      "radius": 1.6
+    },
+    {
+      "id": "200.327:466.902",
+      "x": 1.966,
+      "y": -1.045,
+      "radius": 1.6
+    },
+    {
+      "id": "172.705:452.162",
+      "x": 0.585,
+      "y": -0.308,
+      "radius": 1.6
+    },
+    {
+      "id": "250.659:226.496",
+      "x": 4.483,
+      "y": 10.975
+    },
+    {
+      "id": "315.242:224.541",
+      "x": 7.712,
+      "y": 10.873,
+      "radius": 0.9
+    },
+    {
+      "id": "315.601:188.342",
+      "x": 7.73,
+      "y": 12.883,
+      "radius": 0.9
+    },
+    {
+      "id": "315.644:112.162",
+      "x": 7.732,
+      "y": 16.692,
+      "radius": 0.9
+    },
+    {
+      "id": "261.035:112.083",
+      "x": 5.002,
+      "y": 16.696,
+      "radius": 1.6
+    },
+    {
+      "id": "219.109:111.872",
+      "x": 2.905,
+      "y": 16.706,
+      "radius": 1.6
+    },
+    {
+      "id": "105.552:111.451",
+      "x": -2.772,
+      "y": 16.727,
+      "radius": 1.6
+    },
+    {
+      "id": "111.383:134.929",
+      "x": -2.481,
+      "y": 15.554,
+      "radius": 1.1
+    },
+    {
+      "id": "137.666:160.976",
+      "x": -1.167,
+      "y": 14.251
+    },
+    {
+      "id": "109.976:165.175",
+      "x": -2.551,
+      "y": 14.041
+    },
+    {
+      "id": "104.920:55.199",
+      "x": -2.804,
+      "y": 19.54,
+      "radius": 1.6
+    },
+    {
+      "id": "187.717:55.199",
+      "x": 1.336,
+      "y": 19.54,
+      "radius": 1.6
+    },
+    {
+      "id": "139.261:179.501",
+      "x": -1.087,
+      "y": 13.325
+    },
+    {
+      "id": "250.922:97.335",
+      "x": 4.496,
+      "y": 17.433
+    },
+    {
+      "id": "239.545:84.694",
+      "x": 3.927,
+      "y": 18.065
+    },
+    {
+      "id": "312.230:54.988",
+      "x": 7.562,
+      "y": 19.551
+    },
+    {
+      "id": "160.447:223.723",
+      "x": -0.028,
+      "y": 11.314,
+      "radius": 0.9
+    },
+    {
+      "id": "218.342:333.508",
+      "x": 2.867,
+      "y": 5.625
+    },
+    {
+      "id": "266.827:333.508",
+      "x": 5.291,
+      "y": 5.625,
+      "radius": 1.1
+    },
+    {
+      "id": "305.480:331.813",
+      "x": 7.224,
+      "y": 5.709,
+      "radius": 1.1
+    },
+    {
+      "id": "306.158:393.860",
+      "x": 7.258,
+      "y": 2.607
+    },
+    {
+      "id": "353.965:393.182",
+      "x": 9.648,
+      "y": 2.641
+    },
+    {
+      "id": "352.269:332.152",
+      "x": 9.563,
+      "y": 5.692
+    },
+    {
+      "id": "379.055:294.517",
+      "x": 10.903,
+      "y": 7.574
+    },
+    {
+      "id": "379.394:259.594",
+      "x": 10.92,
+      "y": 9.32,
+      "radius": 1.1
+    },
+    {
+      "id": "377.359:227.044",
+      "x": 10.818,
+      "y": 10.948,
+      "radius": 1.1
+    },
+    {
+      "id": "308.531:459.298",
+      "x": 7.377,
+      "y": -0.665
+    },
+    {
+      "id": "325.823:275.868",
+      "x": 8.241,
+      "y": 8.507
+    },
+    {
+      "id": "189.631:111.811",
+      "x": 1.432,
+      "y": 16.709
+    },
+    {
+      "id": "137.801:111.537",
+      "x": -1.16,
+      "y": 16.723
+    }
   ],
   "links": [
-    { "source": "west", "destination": "northwest", "bidirectional": true },
-    { "source": "northwest", "destination": "northeast", "bidirectional": true },
-    { "source": "northeast", "destination": "east", "bidirectional": true },
-    { "source": "east", "destination": "southeast", "bidirectional": true },
-    { "source": "southeast", "destination": "southwest", "bidirectional": true },
-    { "source": "southwest", "destination": "west", "bidirectional": true },
-    { "source": "west", "destination": "east", "bidirectional": true }
+    {
+      "source": "180.029:333.508",
+      "destination": "160.427:266.831"
+    },
+    {
+      "source": "160.427:266.831",
+      "destination": "156.295:333.169"
+    },
+    {
+      "source": "156.295:333.169",
+      "destination": "157.348:397.385"
+    },
+    {
+      "source": "157.348:397.385",
+      "destination": "180.445:396.430"
+    },
+    {
+      "source": "180.445:396.430",
+      "destination": "180.029:333.508"
+    },
+    {
+      "source": "180.029:333.508",
+      "destination": "156.295:333.169"
+    },
+    {
+      "source": "157.348:397.385",
+      "destination": "172.705:452.162"
+    },
+    {
+      "source": "172.705:452.162",
+      "destination": "181.588:488.638"
+    },
+    {
+      "source": "181.588:488.638",
+      "destination": "200.327:466.902"
+    },
+    {
+      "source": "200.327:466.902",
+      "destination": "180.445:396.430"
+    },
+    {
+      "source": "160.427:266.831",
+      "destination": "160.447:223.723",
+      "bidirectional": true
+    },
+    {
+      "source": "160.447:223.723",
+      "destination": "250.659:226.496",
+      "bidirectional": true
+    },
+    {
+      "source": "250.659:226.496",
+      "destination": "315.242:224.541",
+      "bidirectional": true
+    },
+    {
+      "source": "315.242:224.541",
+      "destination": "315.601:188.342",
+      "bidirectional": true
+    },
+    {
+      "source": "315.644:112.162",
+      "destination": "315.601:188.342"
+    },
+    {
+      "source": "315.601:188.342",
+      "destination": "261.035:112.083"
+    },
+    {
+      "source": "261.035:112.083",
+      "destination": "219.109:111.872"
+    },
+    {
+      "source": "219.109:111.872",
+      "destination": "189.631:111.811"
+    },
+    {
+      "source": "105.552:111.451",
+      "destination": "111.383:134.929",
+      "bidirectional": true
+    },
+    {
+      "source": "111.383:134.929",
+      "destination": "137.666:160.976"
+    },
+    {
+      "source": "109.976:165.175",
+      "destination": "111.383:134.929"
+    },
+    {
+      "source": "105.552:111.451",
+      "destination": "104.920:55.199"
+    },
+    {
+      "source": "104.920:55.199",
+      "destination": "187.717:55.199"
+    },
+    {
+      "source": "137.666:160.976",
+      "destination": "139.261:179.501"
+    },
+    {
+      "source": "139.261:179.501",
+      "destination": "109.976:165.175"
+    },
+    {
+      "source": "261.035:112.083",
+      "destination": "250.922:97.335",
+      "bidirectional": true
+    },
+    {
+      "source": "250.922:97.335",
+      "destination": "239.545:84.694",
+      "bidirectional": true
+    },
+    {
+      "source": "187.717:55.199",
+      "destination": "312.230:54.988"
+    },
+    {
+      "source": "312.230:54.988",
+      "destination": "315.644:112.162"
+    },
+    {
+      "source": "180.029:333.508",
+      "destination": "218.342:333.508",
+      "bidirectional": true
+    },
+    {
+      "source": "218.342:333.508",
+      "destination": "266.827:333.508",
+      "bidirectional": true
+    },
+    {
+      "source": "266.827:333.508",
+      "destination": "305.480:331.813",
+      "bidirectional": true
+    },
+    {
+      "source": "305.480:331.813",
+      "destination": "306.158:393.860"
+    },
+    {
+      "source": "306.158:393.860",
+      "destination": "353.965:393.182"
+    },
+    {
+      "source": "353.965:393.182",
+      "destination": "352.269:332.152"
+    },
+    {
+      "source": "352.269:332.152",
+      "destination": "379.055:294.517",
+      "bidirectional": true
+    },
+    {
+      "source": "379.055:294.517",
+      "destination": "379.394:259.594",
+      "bidirectional": true
+    },
+    {
+      "source": "379.394:259.594",
+      "destination": "377.359:227.044",
+      "bidirectional": true
+    },
+    {
+      "source": "377.359:227.044",
+      "destination": "315.242:224.541",
+      "bidirectional": true
+    },
+    {
+      "source": "306.158:393.860",
+      "destination": "308.531:459.298",
+      "bidirectional": true
+    },
+    {
+      "source": "352.269:332.152",
+      "destination": "305.480:331.813"
+    },
+    {
+      "source": "305.480:331.813",
+      "destination": "325.823:275.868",
+      "bidirectional": true
+    },
+    {
+      "source": "325.823:275.868",
+      "destination": "379.394:259.594",
+      "bidirectional": true
+    },
+    {
+      "source": "189.631:111.811",
+      "destination": "137.801:111.537"
+    },
+    {
+      "source": "137.801:111.537",
+      "destination": "105.552:111.451"
+    },
+    {
+      "source": "315.644:112.162",
+      "destination": "261.035:112.083"
+    }
   ],
   "parking": [
-    { "id": "p1", "x": 4, "y": 5, "entry": "west" },
-    { "id": "p2", "x": 8, "y": 5, "entry": "east" }
+    {
+      "id": "aarons_desk",
+      "x": 2.22,
+      "y": 1.54,
+      "theta": 0.0,
+      "zone": "warehouse",
+      "entry": "180.445:396.430"
+    },
+    {
+      "id": "aarons_desk2",
+      "x": 2.22,
+      "y": 0.54,
+      "theta": 0.0,
+      "zone": "warehouse",
+      "entry": "200.327:466.902"
+    },
+    {
+      "id": "workshop_charging_north",
+      "x": 2.776,
+      "y": 18.669,
+      "theta": 3.142,
+      "entry": "239.545:84.694"
+    },
+    {
+      "id": "daneparkering",
+      "x": 7.452,
+      "y": 9.069,
+      "theta": 1.571,
+      "name": "Danish parking",
+      "entry": "325.823:275.868"
+    }
   ],
   "locations": [
-    { "id": "dock-1", "name": "Dock 1", "zone": "docks", "pickPose": { "x": 0, "y": 10 }, "dropPose": { "x": 0, "y": 10 } },
-    { "id": "dock-2", "name": "Dock 2", "zone": "docks", "pickPose": { "x": 12, "y": 10 }, "dropPose": { "x": 12, "y": 10 } },
-    { "id": "pickup-bay", "name": "Pickup Bay", "zone": "bays", "pickPose": { "x": 12, "y": 0 } }
-  ]
+    {
+      "id": "danelaw",
+      "name": "Danelaw",
+      "zone": "fresh",
+      "pickPose": {
+        "x": 9.412,
+        "y": -2.455,
+        "theta": -1.571
+      },
+      "dropPose": {
+        "x": 9.412,
+        "y": -3.455,
+        "theta": 0.0
+      }
+    },
+    {
+      "id": "originwall2",
+      "name": "Origin Wall 2",
+      "zone": "fresh",
+      "pickPose": {
+        "x": 1.153,
+        "y": 16.836,
+        "theta": -1.571
+      },
+      "dropPose": {
+        "x": 1.153,
+        "y": 15.441,
+        "theta": 0.0
+      }
+    },
+    {
+      "id": "originwall1",
+      "name": "Origin Wall 1",
+      "zone": "wine",
+      "pickPose": {
+        "x": -0.993,
+        "y": 16.941,
+        "theta": -1.571
+      },
+      "dropPose": {
+        "x": -0.993,
+        "y": 15.441,
+        "theta": 0.0
+      }
+    },
+    {
+      "id": "workshopsouth",
+      "name": "Workshop South",
+      "pickPose": {
+        "x": 6.152,
+        "y": 14.067,
+        "theta": -1.571
+      },
+      "dropPose": {
+        "x": 6.152,
+        "y": 12.767,
+        "theta": 3.142
+      }
+    },
+    {
+      "id": "largebaysouth",
+      "name": "Large bay South",
+      "pickPose": {
+        "x": 5.676,
+        "y": 18.0,
+        "theta": -1.571
+      },
+      "dropPose": {
+        "x": 5.676,
+        "y": 17.092,
+        "theta": 0.0
+      }
+    },
+    {
+      "id": "wall",
+      "name": "Wall",
+      "zone": "wine",
+      "pickPose": {
+        "x": 0.712,
+        "y": -0.351,
+        "theta": 3.142
+      },
+      "dropPose": {
+        "x": -0.157,
+        "y": -0.347,
+        "theta": -1.571
+      }
+    },
+    {
+      "id": "television",
+      "name": "Television",
+      "zone": "fresh",
+      "pickPose": {
+        "x": 2.318,
+        "y": 1.813,
+        "theta": 1.571
+      },
+      "dropPose": {
+        "x": 2.381,
+        "y": 2.925,
+        "theta": 0.0
+      }
+    },
+    {
+      "id": "lounge",
+      "name": "Lounge",
+      "pickPose": {
+        "x": 0.541,
+        "y": -3.216,
+        "theta": 3.142
+      },
+      "dropPose": {
+        "x": -0.614,
+        "y": -3.229,
+        "theta": -1.571
+      }
+    },
+    {
+      "id": "window",
+      "name": "Window",
+      "pickPose": {
+        "x": 2.345,
+        "y": -2.835,
+        "theta": -1.571
+      },
+      "dropPose": {
+        "x": 2.236,
+        "y": -3.842,
+        "theta": 0.0
+      }
+    }
+  ],
+  "underlay": {
+    "uri": "maps/cmr-2.png",
+    "minX": -8.05,
+    "minY": -6.65,
+    "maxX": 14.1,
+    "maxY": 22.3
+  }
 }

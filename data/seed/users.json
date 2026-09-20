@@ -3,7 +3,8 @@
     {
       "username": "demo@fleet",
       "sites": [
-        "coalescent"
+        "coalescent",
+        "demo"
       ],
       "scheme": "srp6a-4096-sha256-v1",
       "salt": "89715208af748e23411bd3bada8dc7fb0c6fd91606384704fe857e3b8ad5b445",

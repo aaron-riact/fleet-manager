@@ -11,7 +11,7 @@ import type { ActiveOrder } from "@fleet-manager/vda";
 import { App } from "@fleet-manager/ui";
 import { createMemoryBackend } from "./memoryBackend";
 import type { MemoryBackend } from "./memoryBackend";
-import siteData from "../../../data/seed/sites/coalescent.json";
+import siteData from "../../../data/seed/sites/demo.json";
 import { buildLocks } from "@fleet-manager/core";
 import type { DemandCounts, LockSnapshot, Site, TaskView } from "@fleet-manager/core";
 import { POSE_TTL_MS } from "@fleet-manager/ui";
