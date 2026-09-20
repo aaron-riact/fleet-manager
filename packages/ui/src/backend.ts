@@ -47,6 +47,18 @@ export interface HistoryView {
 }
 
 export type Unsubscribe = () => void;
+
+/**
+ * Refuse fleet commands while offline. Reads get to attempt the network
+ * (and fail through their normal error paths); mutations must never
+ * leave the client when nobody can confirm them — queue-and-replay of
+ * robot commands on reconnect is a footgun, not a feature.
+ */
+export function ensureOnline(): void {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new Error("offline — reconnect to send commands");
+  }
+}
 export type EventSourceFactory = (url: string) => {
   onmessage: ((event: { data: string }) => void) | null;
   onerror: ((event: unknown) => void) | null;
@@ -148,6 +160,7 @@ export function createHttpBackend(
     watchHistory: (site, onHistory) => watchStream(baseUrl, token, site, "history", onHistory, openEventSource),
     watchConnections: (site, onConns) => watchStream(baseUrl, token, site, "connections", onConns, openEventSource),
     dispatchOrder: async (site, input) => {
+      ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.post({
         serialNumber: input.serialNumber,
         ...(input.manufacturer ? { manufacturer: input.manufacturer } : {}),
@@ -160,6 +173,7 @@ export function createHttpBackend(
       }
     },
     parkRobot: async (site, input) => {
+      ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).park.post(input);
       if (res.data == null || "error" in res.data) {
         throw new Error(
@@ -169,6 +183,7 @@ export function createHttpBackend(
       return { spot: res.data.spot };
     },
     parkRobots: async (site, input) => {
+      ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site })["park-many"].post(input);
       if (res.data == null || "error" in res.data) {
         throw new Error(
@@ -178,6 +193,7 @@ export function createHttpBackend(
       return { parked: res.data.parked, failed: res.data.failed };
     },
     cancelOrder: async (site, input) => {
+      ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.cancel.post(input);
       if (res.data == null || "error" in res.data) {
         throw new Error(
@@ -186,6 +202,7 @@ export function createHttpBackend(
       }
     },
     submitTask: async (site, input) => {
+      ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).tasks.post(input);
       if (res.data == null || "error" in res.data) {
         throw new Error(
@@ -204,6 +221,7 @@ export function createHttpBackend(
       return res.data.tasks as TaskView[];
     },
     withdrawTask: async (site, taskId) => {
+      ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).tasks({ taskId }).delete();
       if (res.data == null || "error" in res.data) {
         throw new Error(

@@ -12,6 +12,7 @@ import { TaskBoard } from "./TaskBoard";
 import { ToastProvider, useFailedHistoryToasts, useToast } from "./Toast";
 import { ConfirmProvider, useConfirm } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
+import { OfflineBanner } from "./online";
 import { shellColumns } from "./responsive";
 import { useNarrow } from "./responsive";
 import { MobileShell } from "./MobileShell";
@@ -174,6 +175,7 @@ function ShellView({ session, backend, onLogout, extraPanel }: ShellProps) {
 
   return (
     <div style={{ width: "100%", maxWidth: 1280, padding: "1rem 1.25rem 2rem" }}>
+      <OfflineBanner />
       <header
         style={{
           ...glass,

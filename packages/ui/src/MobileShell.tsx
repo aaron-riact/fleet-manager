@@ -3,6 +3,7 @@ import { theme } from "./theme";
 import { ToastProvider, useFailedHistoryToasts } from "./Toast";
 import { ConfirmProvider } from "./Confirm";
 import { useFleetSite } from "./useFleetSite";
+import { OfflineBanner } from "./online";
 import { FleetMap } from "./FleetMap";
 import { OrderComposer } from "./OrderComposer";
 import { RobotCards, StatusStrip, buildCards, filterCards } from "./RobotCards";
@@ -59,6 +60,7 @@ function MobileView({ session, backend, onLogout, extraPanel, tab, onTabChange }
 
   return (
     <div style={{ ...page, paddingBottom: "4.5rem" }}>
+      <OfflineBanner />
       <header
         style={{
           ...glass,

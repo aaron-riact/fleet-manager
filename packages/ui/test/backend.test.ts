@@ -17,6 +17,25 @@ describe("createHttpBackend dispatch", () => {
     expect(seen[0]![1]).toMatchObject({ serialNumber: "r1" });
   });
 
+  test("mutations refuse while offline without touching the network", async () => {
+    const prior = (globalThis as Record<string, unknown>).navigator;
+    (globalThis as Record<string, unknown>).navigator = { onLine: false };
+    try {
+      const fetchFn = (async () => {
+        throw new Error("must not fetch while offline");
+      }) as unknown as FetchFn;
+      const backend = createHttpBackend("http://x", "t", fetchFn);
+      await expect(
+        backend.dispatchOrder("c", { serialNumber: "r", waypoints: [{ nodeId: "a", x: 0, y: 0 }] }),
+      ).rejects.toThrow(/offline/);
+      await expect(backend.cancelOrder("c", { serialNumber: "r" })).rejects.toThrow(/offline/);
+      await expect(backend.submitTask("c", { pickup: "a", dropoff: "b" })).rejects.toThrow(/offline/);
+    } finally {
+      if (prior === undefined) delete (globalThis as Record<string, unknown>).navigator;
+      else (globalThis as Record<string, unknown>).navigator = prior;
+    }
+  });
+
   test("surfaces busy robots", async () => {
     const fetchFn = (async () =>
       new Response(JSON.stringify({ error: "robot r1 is busy" }), { status: 409 })) as unknown as FetchFn;
