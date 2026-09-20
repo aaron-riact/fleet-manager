@@ -288,6 +288,16 @@ describe("HTTP API", () => {
       expect((await dispatch("coalescent", order)).status).toBe(409);
       expect((await dispatch("coalescent", { ...order, waypoints: [] })).status).toBe(400);
       expect((await dispatch("coalescent", { ...order, serialNumber: 42 })).status).toBe(400);
+      // exit legs validate before the busy check and append past the final node
+      const exiting = { ...order, serialNumber: "api-exit" };
+      expect((await dispatch("coalescent", { ...exiting, exit: { x: "a", y: 0 } })).status).toBe(400);
+      expect((await dispatch("coalescent", { ...exiting, exit: { x: 0, y: 9 } })).status).toBe(200);
+      expect(
+        ctx.fleet
+          .activeOrderList()
+          .find((o) => o.serial === "api-exit")
+          ?.nodes.at(-1)?.nodeId.startsWith("__exit"),
+      ).toBe(true);
       expect(
         (await dispatch("coalescent", order, { "Content-Type": "application/json" })).status,
       ).toBe(401);

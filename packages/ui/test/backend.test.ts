@@ -17,6 +17,19 @@ describe("createHttpBackend dispatch", () => {
     expect(seen[0]![1]).toMatchObject({ serialNumber: "r1" });
   });
 
+  test("forwards the exit leg when present, omits it otherwise", async () => {
+    const seen: Array<unknown> = [];
+    const fetchFn = (async (url: string, init?: RequestInit) => {
+      seen.push(JSON.parse((init?.body as string) ?? "{}"));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as FetchFn;
+    const backend = createHttpBackend("http://x", "t", fetchFn);
+    await backend.dispatchOrder("coalescent", { ...input, exit: { x: 1, y: 2 } });
+    await backend.dispatchOrder("coalescent", input);
+    expect(seen[0]).toMatchObject({ exit: { x: 1, y: 2 } });
+    expect(seen[1]).not.toHaveProperty("exit");
+  });
+
   test("mutations refuse while offline without touching the network", async () => {
     const prior = (globalThis as Record<string, unknown>).navigator;
     (globalThis as Record<string, unknown>).navigator = { onLine: false };

@@ -105,6 +105,7 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
             ...(pose && Number.isFinite(pose.x) && Number.isFinite(pose.y)
               ? { from: { x: pose.x, y: pose.y } }
               : {}),
+            ...(input.exit ? { exit: input.exit } : {}),
           },
         );
       },

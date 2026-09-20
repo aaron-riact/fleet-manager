@@ -225,7 +225,7 @@ export class Fleet {
   async dispatch(
     agvId: AgvId,
     waypoints: FleetWaypoint[],
-    opts: { from?: { x: number; y: number }; park?: ParkingTarget } = {},
+    opts: { from?: { x: number; y: number }; park?: ParkingTarget; exit?: { x: number; y: number } } = {},
   ): Promise<string> {
     if (waypoints.length === 0) throw new Error("dispatch needs at least one waypoint");
     const serial = agvId.serialNumber ?? "unknown";
@@ -244,15 +244,21 @@ export class Fleet {
     // Declare the exit in the same order. A tour that ends on the graph has
     // no safe stopping point in bidirectional territory, so the locker must
     // hold the whole run clear to the final node and no follower can enter
-    // behind us. The off-graph park leg is one-way, which IS a safe stop, so
-    // the locker stops walking there and a follower can trail us instead.
+    // behind us. An off-graph end (parking spot, exact station pose) is
+    // one-way, which IS a safe stop, so the locker stops walking there and
+    // a follower can trail us instead. Park wins when both are given: a
+    // named parking spot is also the tour's exit.
     const last = waypoints[waypoints.length - 1]!;
-    const exits =
-      opts.park && Math.hypot(opts.park.x - last.x, opts.park.y - last.y) > APPROACH_THRESHOLD_M;
-    const points = exits
-      ? [...head, { nodeId: `${OFF_GRAPH_PREFIX}park-${opts.park!.id}`, x: opts.park!.x, y: opts.park!.y }]
-      : head;
-    return this.lockedDispatch(agvId, points, { exits: Boolean(exits) });
+    const farEnough = (p: { x: number; y: number }) =>
+      Math.hypot(p.x - last.x, p.y - last.y) > APPROACH_THRESHOLD_M;
+    const exitTarget =
+      opts.park && farEnough(opts.park)
+        ? { nodeId: `${OFF_GRAPH_PREFIX}park-${opts.park.id}`, x: opts.park.x, y: opts.park.y }
+        : opts.exit && !opts.park && farEnough(opts.exit)
+          ? { nodeId: `${OFF_GRAPH_PREFIX}exit-${dispatchCounter}`, x: opts.exit.x, y: opts.exit.y }
+          : undefined;
+    const points = exitTarget ? [...head, exitTarget] : head;
+    return this.lockedDispatch(agvId, points, { exits: Boolean(exitTarget) });
   }
 
   /**

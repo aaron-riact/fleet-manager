@@ -77,6 +77,8 @@ export interface DispatchInput {
   waypoints: DispatchWaypoint[];
   /** Robot's live pose for the off-graph approach leg (demo + spawns). */
   from?: { x: number; y: number };
+  /** Exact destination past the final node (station pose); skipped when on it. */
+  exit?: { x: number; y: number };
 }
 
 /**
@@ -173,6 +175,7 @@ export function createHttpBackend(
         serialNumber: input.serialNumber,
         ...(input.manufacturer ? { manufacturer: input.manufacturer } : {}),
         waypoints: input.waypoints,
+        ...(input.exit ? { exit: input.exit } : {}),
       });
       if (res.data == null || "error" in res.data) {
         throw new Error(

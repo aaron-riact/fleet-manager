@@ -78,12 +78,17 @@ export function OrderComposer({
     setStatus(null);
     try {
       const pose = poses[robot];
+      const drop = stations.find((s) => s.id === dropId);
+      // End AT the station, not its entry node: the exit leg free-drives
+      // the final meters off-graph once the locked tour is done.
+      const exit = drop?.dropPose ?? drop?.pickPose;
       await backend.dispatchOrder(siteName, {
         serialNumber: robot,
         waypoints: preview,
         ...(pose && Number.isFinite(pose.x) && Number.isFinite(pose.y)
           ? { from: { x: pose.x, y: pose.y } }
           : {}),
+        ...(exit ? { exit: { x: exit.x, y: exit.y } } : {}),
       });
       setStatus({ ok: true, text: `tour accepted for ${robot}` });
     } catch (e) {

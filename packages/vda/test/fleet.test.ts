@@ -5,6 +5,8 @@ import { buildLocks } from "@fleet-manager/core";
 import type { LockSnapshot } from "@fleet-manager/core";
 import { Fleet } from "../src/fleet.js";
 import type { ActiveOrder } from "../src/fleet.js";
+import { watchRobots } from "../src/robots.js";
+import type { RobotPose } from "../src/robots.js";
 import { MemoryHub, attachMemoryTransport } from "../src/fakeMqtt.js";
 
 const options: ClientOptions = {
@@ -287,6 +289,55 @@ describe("Fleet dispatch with locks", () => {
       ).rejects.toThrow(/busy with order/);
       await first;
     } finally {
+      await c.stop();
+      await master.stop();
+    }
+  }, 90_000);
+
+  test("exit leg drives off-graph to the exact station pose", async () => {
+    const site = {
+      name: "short",
+      nodes: [
+        { id: "a", x: 0, y: 0 },
+        { id: "b", x: 5, y: 0 },
+      ],
+      links: [{ source: "a", destination: "b", bidirectional: true }],
+    };
+    const locks = buildLocks(site);
+    const hub = new MemoryHub();
+    const master = new MasterController(options, {});
+    attachMemoryTransport(master, hub);
+    await master.start();
+    const r = { manufacturer: "RobotCompany", serialNumber: "exit-1" };
+    const c = await startAgv(hub, r, 0, 0);
+    const latest = new Map<string, RobotPose>();
+    const stopWatch = await watchRobots(master, undefined, (pose) => {
+      latest.set(pose.serialNumber, pose);
+    });
+    const fleet = new Fleet(master, locks);
+    try {
+      // station pose 2.5m past node b: the tour must end there, not at b
+      await fleet.dispatch(
+        r,
+        [
+          { nodeId: "a", x: 0, y: 0 },
+          { nodeId: "b", x: 5, y: 0 },
+        ],
+        { exit: { x: 5, y: 2.5 } },
+      );
+      // off-graph end holds nothing, like a park exit
+      expect(locks.snapshot().nodeLocks.every((n) => n.owners.length === 0)).toBe(true);
+      expect(locks.snapshot().edgeLocks.every((e) => !e.held)).toBe(true);
+      await pollFor(
+        "arrival at the exit pose",
+        () => {
+          const pose = latest.get("exit-1");
+          return pose !== undefined && Math.hypot(pose.x - 5, pose.y - 2.5) < 1.0;
+        },
+        15_000,
+      );
+    } finally {
+      stopWatch();
       await c.stop();
       await master.stop();
     }

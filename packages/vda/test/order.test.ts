@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { MasterController } from "vda-5050-lib";
 import type { FleetLocks } from "@fleet-manager/core";
 import { Fleet, buildIncrementalOrder, stitchRelease } from "../src/fleet.js";
+import type { ActiveOrder } from "../src/fleet.js";
 
 const waypoints = [
   { nodeId: "a", x: 0, y: 0 },
@@ -107,6 +108,18 @@ describe("order history", () => {
     const orderId = await fleet.dispatch(robot("h-id"), waypoints);
     expect(orderId).toMatch(/^fleet-order-/);
     expect(fleet.orderHistory().map((h) => h.orderId)).toEqual([orderId]);
+  });
+
+  test("exit appends an off-graph leg past the final node", async () => {
+    const seen: ActiveOrder[][] = [];
+    const fleet = new Fleet(stubMaster(), stubLocks(), {
+      onOrders: (list) => void seen.push(list),
+    });
+    await fleet.dispatch(robot("h-exit"), waypoints, { exit: { x: 99, y: 99 } });
+    const ids = seen[0]![0]!.nodes.map((n) => n.nodeId);
+    expect(ids.slice(0, 3)).toEqual(["a", "b", "c"]);
+    expect(ids[3]).toMatch(/^__exit/);
+    expect(fleet.activeOrderList()).toEqual([]);
   });
 
   test("failed dispatch records the reason", async () => {

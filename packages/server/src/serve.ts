@@ -718,6 +718,7 @@ export function buildApp(
         manufacturer?: unknown;
         serialNumber?: unknown;
         waypoints?: unknown;
+        exit?: unknown;
       };
       const manufacturer =
         typeof input.manufacturer === "string" ? input.manufacturer : defaultManufacturer;
@@ -734,6 +735,14 @@ export function buildApp(
         }
         return { nodeId: point.nodeId, x: point.x as number, y: point.y as number };
       });
+      let exit: { x: number; y: number } | undefined;
+      if (input.exit !== undefined) {
+        const point = input.exit as { x?: unknown; y?: unknown };
+        if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+          throw Object.assign(new Error("exit needs x, y"), { status: 400 });
+        }
+        exit = { x: point.x as number, y: point.y as number };
+      }
       // Accepted, not awaited: progress streams over locks/orders SSE.
       // Busy is refused synchronously; later failures ride the orders
       // feed and server logs.
@@ -744,7 +753,7 @@ export function buildApp(
         );
       }
       ctx.fleet
-        .dispatch({ manufacturer, serialNumber: input.serialNumber }, waypoints)
+        .dispatch({ manufacturer, serialNumber: input.serialNumber }, waypoints, { ...(exit ? { exit } : {}) })
         .catch((error: unknown) => console.warn("dispatch failed", error));
       return { ok: true };
     });
