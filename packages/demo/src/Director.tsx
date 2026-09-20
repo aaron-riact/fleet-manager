@@ -15,8 +15,8 @@ import { defaultActionLabel } from "@fleet-manager/ui";
 import type { MapMarker } from "@fleet-manager/ui";
 import { selectAutoParkTarget } from "./autoPark";
 import { TrolleyAdapter } from "./trolley/adapter";
-import { dropAttachments, pickAttachments } from "./trolley/attachments";
-import { TrolleyWorld } from "./trolley/world";
+import { dropAttachments, pickAttachments, stationDock, stationEntry } from "./trolley/attachments";
+import { DEFAULT_TROLLEY_SEED, TrolleyWorld } from "./trolley/world";
 import { SITES, selectInitialSite } from "./sites";
 import { buildLocks } from "@fleet-manager/core";
 import type { DemandCounts, LockSnapshot, Site, TaskView } from "@fleet-manager/core";
@@ -119,17 +119,38 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         const robot = fleet.robots.find((r) => r.id.serialNumber === input.serialNumber);
         if (!robot) throw new Error(`unknown robot "${input.serialNumber}"`);
         const pose = posesRef.current[input.serialNumber];
-        // Manual tours get the same end-of-tour work as pumped ones: the
-        // first waypoint is the pickup entry, the last the drop entry.
-        // Builders return [] for plain graph nodes, so drive-only tours
-        // pass through unchanged.
-        const end = input.waypoints.length - 1;
+        // Manual tours name their stations; work attaches at the waypoints
+        // matching those stations' entries — NOT at the tour ends, which
+        // start at the node nearest the robot. A doomed drop (station
+        // occupied) refuses before driving; an empty pick station still
+        // drives and fails on arrival, where the world is actually read.
+        const demoSite = site as Site;
+        const world = worldRef.current;
+        const pickEntry = input.pickupStationId ? stationEntry(demoSite, input.pickupStationId) : undefined;
+        const dropEntry = input.dropStationId ? stationEntry(demoSite, input.dropStationId) : undefined;
+        if (input.dropStationId && world) {
+          const occupant = world.trolleyAt(input.dropStationId);
+          if (occupant !== undefined) {
+            throw new Error(`station "${input.dropStationId}" already holds trolley "${occupant}"`);
+          }
+        }
+        const pickAt = pickEntry === undefined ? -1 : input.waypoints.findIndex((w) => w.nodeId === pickEntry);
+        let dropAt = -1;
+        if (dropEntry !== undefined) {
+          for (let i = input.waypoints.length - 1; i >= 0; i--) {
+            if (input.waypoints[i]!.nodeId === dropEntry) {
+              dropAt = i;
+              break;
+            }
+          }
+        }
         await svc.dispatch(
           robot.id,
           input.waypoints.map((w, i) => {
-            const first = i === 0 ? pickAttachments(site as Site, w.nodeId) : [];
-            const last = i === end ? dropAttachments(site as Site, w.nodeId) : [];
-            const actions = [...first, ...last];
+            const actions = [
+              ...(i === pickAt ? pickAttachments(demoSite, w.nodeId) : []),
+              ...(i === dropAt ? dropAttachments(demoSite, w.nodeId) : []),
+            ];
             return actions.length > 0
               ? { nodeId: w.nodeId, x: w.x, y: w.y, actions }
               : { nodeId: w.nodeId, x: w.x, y: w.y };
@@ -324,11 +345,13 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
     const world = worldRef.current;
     if (!world) return [];
     const out: MapMarker[] = [];
-    const locs = new Map(((site as Site).locations ?? []).map((l) => [l.id, l]));
     for (const station of world.stations()) {
       const trolley = world.trolleyAt(station);
-      const dock = locs.get(station)?.pickPose ?? locs.get(station)?.dropPose;
-      if (!trolley || !dock || !Number.isFinite(dock.x) || !Number.isFinite(dock.y)) continue;
+      // Pick stance owns the marker; a station with only a dropPose shows
+      // the trolley at its drop dock instead.
+      const dock =
+        stationDock(site as Site, station, "pickup") ?? stationDock(site as Site, station, "dropoff");
+      if (!trolley || !dock) continue;
       out.push({ id: `trolley-${trolley}`, x: dock.x, y: dock.y, label: trolley });
     }
     for (const { trolleyId, carrier } of world.aboard()) {
@@ -350,13 +373,10 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
     let stopConns: (() => void) | undefined;
     (async () => {
       const spots = site.parking ?? [];
-      // One trolley per pick station; the component remounts per site, so
-      // each site gets a fresh world. Picking the same station twice demos
-      // the empty-station failure.
+      // Sparse initial layout (see DEFAULT_TROLLEY_SEED); the component
+      // remounts per site, so each site gets a fresh world.
       const world = new TrolleyWorld();
-      for (const loc of (site as Site).locations ?? []) {
-        if (loc.pickPose) world.seed(loc.id, `trolley-${loc.id}`);
-      }
+      world.seedDefaults(DEFAULT_TROLLEY_SEED[siteName] ?? []);
       worldRef.current = world;
       const fleet = await bootFleet({
         interfaceName: site.name,

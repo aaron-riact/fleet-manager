@@ -88,6 +88,13 @@ export interface DispatchInput {
   from?: { x: number; y: number };
   /** Exact destination past the final node (station pose); skipped when on it. */
   exit?: { x: number; y: number };
+  /**
+   * Station (location id) the tour picks from / drops at. Hosts that own
+   * domain work (demo trolleys) resolve these to entry waypoints; the
+   * server ignores them and drives.
+   */
+  pickupStationId?: string;
+  dropStationId?: string;
 }
 
 /**

@@ -18,6 +18,12 @@ export const TROLLEY_DRIVE_MPS = 1;
 export const TROLLEY_TURN_RPS = Math.PI / 2;
 /** Slack between the motion plan and the action's Running duration. */
 export const TROLLEY_DURATION_MARGIN_S = 3;
+/**
+ * The trolley waits this far ahead of the station stance pose, along its
+ * facing. Station poses are where the robot stands; the load is at the
+ * spot it faces from there.
+ */
+export const TROLLEY_AHEAD_M = 1;
 
 export interface TrolleyAdapterOptions extends VirtualAgvAdapterOptions {
   /**

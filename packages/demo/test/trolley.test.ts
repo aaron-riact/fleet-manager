@@ -6,7 +6,7 @@ import type { Site } from "@fleet-manager/core";
 import { Fleet } from "@fleet-manager/vda";
 import { bootFleet } from "../src/fleet.js";
 import { TrolleyAdapter } from "../src/trolley/adapter.js";
-import { dropAttachments, pickAttachments } from "../src/trolley/attachments.js";
+import { dropAttachments, pickAttachments, stationDock } from "../src/trolley/attachments.js";
 import { TrolleyWorld } from "../src/trolley/world.js";
 
 const site: Site = {
@@ -46,6 +46,26 @@ describe("trolley world", () => {
   });
 });
 
+describe("stationDock", () => {
+  test("projects the stance along its facing", () => {
+    // depot dropPose (-1, 0, theta π) faces west: trolley waits at (-2, 0).
+    const dock = stationDock(site, "depot", "dropoff")!;
+    expect(dock.station).toBe("depot");
+    expect(dock.x).toBeCloseTo(-2, 9);
+    expect(dock.y).toBeCloseTo(0, 9);
+    expect(dock.theta).toBe(Math.PI);
+  });
+
+  test("poses without theta face away from the entry node", () => {
+    // bay pickPose (5, 0) off entry b (4, 0): faces east, dock at (6, 0).
+    expect(stationDock(site, "bay", "pickup")).toMatchObject({ station: "bay", x: 6, y: 0, theta: 0 });
+  });
+
+  test("unknown station or missing pose yields no dock", () => {
+    expect(stationDock(site, "ghost", "pickup")).toBeUndefined();
+  });
+});
+
 describe("trolley pick and drop", () => {
   test("pick drives under the trolley; drop sets it down and exits clear", async () => {
     const world = new TrolleyWorld();
@@ -71,9 +91,10 @@ describe("trolley pick and drop", () => {
         ],
       );
 
-      // The maneuver drove off the node to the dock pose (5, 0).
+      // The maneuver drove off the node to the dock: stance (5, 0)
+      // projected 1m along its facing (entry-ward fallback theta 0).
       const positions = seen.map((s) => s.agvPosition).filter((p) => p !== undefined);
-      expect(Math.max(...positions.map((p) => p!.x))).toBeGreaterThan(4.5);
+      expect(Math.max(...positions.map((p) => p!.x))).toBeGreaterThan(5.5);
       const statuses = seen.flatMap((s) => (s.actionStates ?? []).map((a) => `${a.actionType}:${a.actionStatus}`));
       expect(statuses).toContain("pickTrolley:RUNNING");
       expect(statuses).toContain("pickTrolley:FINISHED");
@@ -93,8 +114,9 @@ describe("trolley pick and drop", () => {
       expect(world.carrierOf("trolley-1")).toBeUndefined();
       const after = seen.slice(seen.indexOf(last) + 1);
       const dropPositions = after.map((s) => s.agvPosition).filter((p) => p !== undefined);
-      // Dock (-1, 0), swung 90° and exited: y climbs while x stays docked.
-      expect(Math.min(...dropPositions.map((p) => p!.x))).toBeLessThan(-0.5);
+      // Dock is stance (-1, 0) projected along theta π to (-2, 0); swung
+      // 90° and exited, so y climbs while x stays docked.
+      expect(Math.min(...dropPositions.map((p) => p!.x))).toBeLessThan(-1.5);
       expect(Math.max(...dropPositions.map((p) => Math.abs(p!.y)))).toBeGreaterThan(0.5);
       const dropStatuses = after.flatMap((s) => (s.actionStates ?? []).map((a) => `${a.actionType}:${a.actionStatus}`));
       expect(dropStatuses).toContain("dropTrolley:FINISHED");

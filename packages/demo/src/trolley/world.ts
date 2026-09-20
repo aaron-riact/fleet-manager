@@ -1,4 +1,14 @@
 /**
+ * Initial trolley layout per site (station/location ids). Deliberately
+ * sparse: most stations start empty so picks there demo the failure path
+ * and drops rarely collide with a parked trolley.
+ */
+export const DEFAULT_TROLLEY_SEED: Record<string, string[]> = {
+  coalescent: ["originwall1", "television"],
+  demo: ["dock-1", "dock-2"],
+};
+
+/**
  * Demo world state: which trolley sits at which station, and which robot
  * carries what. The navigation framework never sees this — the trolley
  * adapter consults it when a pick/drop action starts, and the attachments
@@ -22,6 +32,11 @@ export class TrolleyWorld {
   /** Trolley waiting at a station, if any. Carried trolleys are not "at" stations. */
   trolleyAt(station: string): string | undefined {
     return this.atStation.get(station);
+  }
+
+  /** Seed the default layout: one trolley per listed station. */
+  seedDefaults(stations: string[]): void {
+    for (const station of stations) this.seed(station, `trolley-${station}`);
   }
 
   /** Who carries a trolley, if anyone. */

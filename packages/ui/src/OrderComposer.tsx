@@ -89,6 +89,8 @@ export function OrderComposer({
           ? { from: { x: pose.x, y: pose.y } }
           : {}),
         ...(exit ? { exit: { x: exit.x, y: exit.y } } : {}),
+        ...(pickupId ? { pickupStationId: pickupId } : {}),
+        ...(dropId ? { dropStationId: dropId } : {}),
       });
       setStatus({ ok: true, text: `tour accepted for ${robot}` });
     } catch (e) {
