@@ -123,31 +123,71 @@ export interface FailedHistoryEntry {
   reason?: string;
 }
 
+/** What the hook carries between snapshots. */
+export interface FailureToastState {
+  /** Order ids already accounted for, toasted or baselined away. */
+  known: Set<string>;
+  /** The baseline snapshot has been taken for the current site. */
+  baselined: boolean;
+}
+
+export function emptyFailureToastState(): FailureToastState {
+  return { known: new Set(), baselined: false };
+}
+
+/**
+ * Fold one history snapshot in, returning the entries to toast. The
+ * baseline snapshot toasts nothing — those failures predate the session
+ * — and an empty baseline is still a baseline. Counting ids cannot tell
+ * the two apart: on a fresh server the baseline is empty, so nothing is
+ * ever recorded and the session's first real failure reads as the
+ * baseline in turn. `received` is the stream saying it has answered;
+ * false resets, which is what a site switch needs.
+ */
+export function foldFailureToasts(
+  state: FailureToastState,
+  history: FailedHistoryEntry[],
+  received: boolean,
+): { state: FailureToastState; toast: FailedHistoryEntry[] } {
+  if (!received) return { state: emptyFailureToastState(), toast: [] };
+  const known = new Set(state.known);
+  if (!state.baselined) {
+    for (const h of history) known.add(h.orderId);
+    return { state: { known, baselined: true }, toast: [] };
+  }
+  const toast: FailedHistoryEntry[] = [];
+  for (const h of history) {
+    if (known.has(h.orderId)) continue;
+    if (h.outcome === "failed") toast.push(h);
+    known.add(h.orderId);
+  }
+  // Retention drops old entries from the stream; drop them here too, or
+  // the set grows for the life of the tab.
+  if (known.size > history.length + 50) {
+    const live = new Set(history.map((h) => h.orderId));
+    for (const id of known) if (!live.has(id)) known.delete(id);
+  }
+  return { state: { known, baselined: true }, toast };
+}
+
 /**
  * Toast tours that die outside any open form. The history stream is the
- * only witness, so every shell mounts this. The first snapshot only
- * marks ids seen, never toasts: those failures predate the session.
+ * only witness, so every shell mounts this.
  */
-export function useFailedHistoryToasts(history: FailedHistoryEntry[]): void {
+export function useFailedHistoryToasts(
+  history: FailedHistoryEntry[],
+  received: boolean,
+): void {
   const toast = useToast();
-  const seen = useRef(new Set<string>());
+  const state = useRef(emptyFailureToastState());
   useEffect(() => {
-    const known = seen.current;
-    const first = known.size === 0;
-    for (const h of history) {
-      if (!known.has(h.orderId)) {
-        if (!first && h.outcome === "failed") {
-          toast.show({
-            kind: "bad",
-            message: `Tour for ${h.serial} failed${h.reason ? `: ${h.reason}` : ""}`,
-          });
-        }
-        known.add(h.orderId);
-      }
+    const next = foldFailureToasts(state.current, history, received);
+    state.current = next.state;
+    for (const h of next.toast) {
+      toast.show({
+        kind: "bad",
+        message: `Tour for ${h.serial} failed${h.reason ? `: ${h.reason}` : ""}`,
+      });
     }
-    if (known.size > history.length + 50) {
-      const live = new Set(history.map((h) => h.orderId));
-      for (const id of known) if (!live.has(id)) known.delete(id);
-    }
-  }, [history, toast]);
+  }, [history, received, toast]);
 }

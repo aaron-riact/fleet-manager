@@ -14,6 +14,8 @@ export interface FleetSiteData {
   locks: LockSnapshot | undefined;
   orders: OrderView[];
   history: HistoryView[];
+  /** The history stream has delivered at least one frame for this site. */
+  historyReceived: boolean;
   live: boolean;
 }
 
@@ -54,6 +56,10 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
   const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
   const [orders, setOrders] = useState<OrderView[]>([]);
   const [history, setHistory] = useState<HistoryView[]>([]);
+  // An empty history from the stream and an empty history because nothing
+  // has arrived look the same. Callers that treat the first frame as a
+  // baseline need to tell them apart.
+  const [historyReceived, setHistoryReceived] = useState(false);
   const seenAt = useRef<Record<string, number>>({});
   const siteName = resolveSiteName(sites, wanted);
 
@@ -99,6 +105,7 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
         setLocks(undefined);
         setOrders([]);
         setHistory([]);
+        setHistoryReceived(false);
         seenAt.current = {};
         const map = await backend.getMap(name);
         if (cancelled) return;
@@ -116,7 +123,9 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
             if (!cancelled) setOrders(list);
           }),
           backend.watchHistory(name, (list) => {
-            if (!cancelled) setHistory(list);
+            if (cancelled) return;
+            setHistory(list);
+            setHistoryReceived(true);
           }),
         );
       } catch (e) {
@@ -129,5 +138,17 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
     };
   }, [backend, wanted]);
 
-  return { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live: site !== null && error === null };
+  return {
+    site,
+    sites,
+    siteName,
+    setSiteName,
+    error,
+    poses,
+    locks,
+    orders,
+    history,
+    historyReceived,
+    live: site !== null && error === null,
+  };
 }

@@ -64,13 +64,13 @@ function MobileView({
   markers,
   resolveActionLabel = defaultActionLabel,
 }: MobileShellProps) {
-  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
+  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, historyReceived, live } =
     useFleetSite(backend, initialSite);
   const changeSite = (name: string) => {
     setSiteName(name);
     onSiteChange?.(name);
   };
-  useFailedHistoryToasts(history);
+  useFailedHistoryToasts(history, historyReceived);
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);

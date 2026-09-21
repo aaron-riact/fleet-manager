@@ -155,7 +155,7 @@ function ShellView({
   resolveActionLabel = defaultActionLabel,
 }: ShellProps) {
   const toast = useToast();
-  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, live } =
+  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, historyReceived, live } =
     useFleetSite(backend, initialSite);
   const changeSite = (name: string) => {
     setSiteName(name);
@@ -163,7 +163,7 @@ function ShellView({
   };
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>("all");
 
-  useFailedHistoryToasts(history);
+  useFailedHistoryToasts(history, historyReceived);
 
   const cards = useMemo(() => buildCards(poses, orders, locks), [poses, orders, locks]);
   const visibleCards = useMemo(() => filterCards(cards, fleetFilter), [cards, fleetFilter]);
