@@ -81,6 +81,31 @@ describe("order building", () => {
     expect(order.nodes[1]?.actions).toEqual([]);
   });
 
+  test("a minted id beats one the attachment carries, and is unique per node", () => {
+    // Attachments are opaque pass-through data from whoever built the
+    // waypoints. One that happens to carry an actionId must not decide
+    // what goes on the wire, and one object reused across two nodes must
+    // not put the same id on both.
+    let n = 0;
+    const shared = {
+      actionType: "pickTrolley",
+      blockingType: "HARD" as const,
+      actionId: "theirs",
+    } as never;
+    const { order } = buildIncrementalOrder(
+      "o1",
+      [
+        { nodeId: "a", x: 0, y: 0, actions: [shared] },
+        { nodeId: "b", x: 5, y: 0, actions: [shared] },
+      ],
+      () => `act-${++n}`,
+    );
+    const ids = [order.nodes[0]?.actions?.[0], order.nodes[1]?.actions?.[0]].map(
+      (a) => (a as { actionId: string } | undefined)?.actionId,
+    );
+    expect(ids).toEqual(["act-1", "act-2"]);
+  });
+
   test("unknown blocking type fails at build time, not mid-tour", () => {
     expect(() =>
       buildIncrementalOrder(

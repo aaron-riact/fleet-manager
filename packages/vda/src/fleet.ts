@@ -59,7 +59,7 @@ export function buildIncrementalOrder(
                 ? BlockingType.None
                 : undefined;
         if (blockingType === undefined) throw new Error(`unknown blocking type "${a.blockingType}"`);
-        return { actionId: newActionId(), ...a, blockingType };
+        return { ...a, actionId: newActionId(), blockingType };
       }),
     };
   });
