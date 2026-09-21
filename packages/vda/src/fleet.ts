@@ -470,9 +470,15 @@ export class Fleet {
             this.cancelled.delete(serial);
             this.activeOrders.delete(serial);
             finish("failed", actionReason);
+            // Release here rather than leaving it to cancel(), which only
+            // clears once the AGV confirms the cancelOrder. onOrderDone
+            // below dispatches the next tour synchronously, and a clear
+            // after that unlocks this path by robot name — taking the new
+            // tour's locks, and its replay closure, with it.
+            granting.clearAllPathLocks();
+            this.emit();
             this.emitDone(serial, "failed");
             this.emitOrders();
-            this.emit();
             reject(new Error(actionReason));
             return;
           }
@@ -589,6 +595,14 @@ export class Fleet {
       this.cancelled.delete(serial);
       throw error;
     }
-    granting.clearAllPathLocks();
+    // Not once a replacement tour is live: locks carry only the robot's
+    // name, so clearing this path would take the nodes that tour just
+    // locked. It released its own path as it ended (see onOrderProcessed);
+    // with no replacement, clearing again is harmless and covers a
+    // traversal that landed after that.
+    const current = this.pathLockers.get(serial);
+    if (current === undefined || current === granting) {
+      granting.clearAllPathLocks();
+    }
   }
 }
