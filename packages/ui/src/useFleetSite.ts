@@ -32,6 +32,21 @@ export function resolveSiteName(sites: string[], preferred: string | null): stri
   return sites[0]!;
 }
 
+/**
+ * Whether a shell should adopt the site its caller pins. Only a genuine
+ * change counts: the pin moves with the URL, so Back and Forward must
+ * pull the view along, while a pick the user made between two changes
+ * has to survive — the demo pins its own site and drives the switch
+ * from outside the shell.
+ */
+export function adoptPinnedSite(
+  pinned: string | null | undefined,
+  lastPinned: string | null | undefined,
+): { adopt: true; site: string } | { adopt: false } {
+  if (pinned == null || pinned === lastPinned) return { adopt: false };
+  return { adopt: true, site: pinned };
+}
+
 function storedSiteName(): string | null {
   try {
     return typeof localStorage === "undefined" ? null : localStorage.getItem(SITE_STORAGE_KEY);
@@ -44,13 +59,16 @@ function storedSiteName(): string | null {
  * Subscribe one backend site: map, poses, locks, orders, history, plus
  * the staleness sweep. Extracted from Shell so desktop and mobile shells
  * share one subscription implementation instead of copying six effects.
- * The selected site persists across reloads per browser, unless the
- * caller pins an initial site (deep links) that takes precedence once.
+ * The selected site persists across reloads per browser. A caller that
+ * pins a site (deep links, the hash, the demo's own selector) overrides
+ * that whenever the pin changes, so the view never disagrees with the
+ * URL after Back or Forward.
  */
 export function useFleetSite(backend: Backend, initialSite?: string | null): FleetSiteData {
   const [site, setSite] = useState<Site | null>(null);
   const [sites, setSites] = useState<string[]>([]);
   const [wanted, setWanted] = useState<string | null>(() => initialSite ?? storedSiteName());
+  const lastPinned = useRef(initialSite);
   const [error, setError] = useState<string | null>(null);
   const [poses, setPoses] = useState<Record<string, LivePose>>({});
   const [locks, setLocks] = useState<LockSnapshot | undefined>(undefined);
@@ -71,6 +89,14 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
       /* private mode: selection simply does not persist */
     }
   };
+
+  // The shell stays mounted while the hash moves under it, so the pin is
+  // re-read on every render, not just the first.
+  useEffect(() => {
+    const update = adoptPinnedSite(initialSite, lastPinned.current);
+    lastPinned.current = initialSite;
+    if (update.adopt) setWanted(update.site);
+  });
 
   // Sweep silent robots off the cards. The poses stream only pushes on
   // arrival, so without this a robot that stops reporting cards as placed
