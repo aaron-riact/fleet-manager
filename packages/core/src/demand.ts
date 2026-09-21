@@ -22,12 +22,18 @@ export function addDemand(counts: DemandCounts, zone: string, n: number): Demand
 
 /**
  * Consume one unit when it becomes a request. Floors at zero — a request
- * against unknown demand still creates the task, it just moves nothing.
+ * against unknown demand still creates the task, it just moves nothing —
+ * and reports whether a unit actually moved. Withdrawing that request
+ * returns a unit, so a refund without this would mint demand that was
+ * never there.
  */
-export function consumeDemand(counts: DemandCounts, zone: string): DemandCounts {
-  const next = { ...counts };
-  next[zone] = Math.max(0, (next[zone] ?? 1) - 1);
-  return next;
+export function consumeDemand(
+  counts: DemandCounts,
+  zone: string,
+): { counts: DemandCounts; took: boolean } {
+  const have = counts[zone] ?? 0;
+  const took = have > 0;
+  return { counts: { ...counts, [zone]: took ? have - 1 : 0 }, took };
 }
 
 /** Stable snapshot for streams and boards, zones alphabetical. */

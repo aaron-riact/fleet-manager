@@ -212,7 +212,9 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         const task = tasksRef.current.get(taskId);
         if (!task) throw new Error("unknown task");
         if (task.status === "requested") {
-          if (task.zone !== undefined) {
+          // Only a request that actually took a unit gives one back; see
+          // the server's withdraw path.
+          if (task.zone !== undefined && task.holdsDemand) {
             demandsRef.current = addDemand(demandsRef.current, task.zone, 1);
             backend.emitDemands(demandList(demandsRef.current));
           }
@@ -231,18 +233,23 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         if (input.zone !== undefined && !input.zone) {
           throw new Error("zone must be a non-empty string");
         }
+        // Take the unit first: whether one was there decides what a
+        // withdrawal may hand back.
+        let holdsDemand = false;
+        if (input.zone !== undefined) {
+          const taken = consumeDemand(demandsRef.current, input.zone);
+          holdsDemand = taken.took;
+          demandsRef.current = taken.counts;
+          backend.emitDemands(demandList(demandsRef.current));
+        }
         const id = nextTaskId();
         tasksRef.current.set(id, {
           id,
           dropoff: input.dropoff,
-          ...(input.zone === undefined ? {} : { zone: input.zone }),
+          ...(input.zone === undefined ? {} : { zone: input.zone, holdsDemand }),
           status: "requested",
           createdAt: Date.now(),
         });
-        if (input.zone !== undefined) {
-          demandsRef.current = consumeDemand(demandsRef.current, input.zone);
-          backend.emitDemands(demandList(demandsRef.current));
-        }
         return { taskId: id };
       },
       attachPickup: async (_site, taskId, input) => {

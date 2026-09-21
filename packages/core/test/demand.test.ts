@@ -12,11 +12,26 @@ describe("demand counters", () => {
 
   test("consume decrements toward the request, flooring at zero", () => {
     // conservation: one unit of demand becomes one request
-    expect(consumeDemand({ dock: 2 }, "dock")).toEqual({ dock: 1 });
-    expect(consumeDemand({ dock: 1 }, "dock")).toEqual({ dock: 0 });
+    expect(consumeDemand({ dock: 2 }, "dock")).toEqual({ counts: { dock: 1 }, took: true });
+    expect(consumeDemand({ dock: 1 }, "dock")).toEqual({ counts: { dock: 0 }, took: true });
     // requesting against unknown demand still creates the task
-    expect(consumeDemand({}, "dock")).toEqual({ dock: 0 });
-    expect(consumeDemand({ dock: 0 }, "dock")).toEqual({ dock: 0 });
+    expect(consumeDemand({}, "dock")).toEqual({ counts: { dock: 0 }, took: false });
+    expect(consumeDemand({ dock: 0 }, "dock")).toEqual({ counts: { dock: 0 }, took: false });
+  });
+
+  test("a request that took nothing has nothing to give back", () => {
+    // Request against a zone showing zero, then withdraw it. Refunding
+    // what was never taken would put demand on the board that nobody
+    // signalled, breaking the sum this module exists to keep.
+    const taken = consumeDemand({ dock: 0 }, "dock");
+    expect(taken.took).toBe(false);
+    const refunded = taken.took ? addDemand(taken.counts, "dock", 1) : taken.counts;
+    expect(refunded).toEqual({ dock: 0 });
+
+    // Where a unit was taken, the round trip is lossless.
+    const real = consumeDemand({ dock: 3 }, "dock");
+    expect(real.took).toBe(true);
+    expect(addDemand(real.counts, "dock", 1)).toEqual({ dock: 3 });
   });
 
   test("inputs are never mutated, snapshots sort alphabetical", () => {

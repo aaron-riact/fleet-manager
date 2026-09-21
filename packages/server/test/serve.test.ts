@@ -958,6 +958,22 @@ describe("HTTP API", () => {
       expect(del.status).toBe(200);
       expect(ctx.demands).toEqual({ dock: 1 });
       expect((await getTasks()).tasks.map((t) => t.id)).not.toContain(requested2.taskId);
+
+      // A request raised against a zone showing nothing takes nothing, so
+      // withdrawing it must not put demand on the board that no one asked
+      // for. Reset to zero, request, withdraw: still zero.
+      await post("/api/sites/coalescent/demand", { zone: "dock", count: 0 }, token);
+      expect(ctx.demands).toEqual({ dock: 0 });
+      const requested3 = await (
+        await post("/api/sites/coalescent/tasks/request", { dropoff: "b", zone: "dock" }, token)
+      ).json();
+      expect(ctx.demands).toEqual({ dock: 0 });
+      const del3 = await fetch(`${base}/api/sites/coalescent/tasks/${requested3.taskId}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(del3.status).toBe(200);
+      expect(ctx.demands).toEqual({ dock: 0 });
     } finally {
       await robot.stop();
       for (const [, c] of contexts) await c.master.stop();

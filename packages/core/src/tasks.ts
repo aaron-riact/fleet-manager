@@ -17,6 +17,12 @@ export interface TaskView {
   status: "requested" | "queued" | "assigned" | "done" | "failed";
   /** Demand zone this task was requested for, if any (pump weighting). */
   zone?: string;
+  /**
+   * This request took a unit of its zone's demand, so withdrawing it
+   * gives one back. False when the zone was already at zero: the task
+   * is still created, but it is holding nothing to return.
+   */
+  holdsDemand?: boolean;
   assignee?: string;
   /** Fleet order id once dispatched — the key into order history. */
   orderId?: string;

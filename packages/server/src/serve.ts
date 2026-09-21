@@ -694,18 +694,23 @@ export function buildApp(
       if (input.zone !== undefined && (typeof input.zone !== "string" || !input.zone)) {
         throw Object.assign(new Error("zone must be a non-empty string"), { status: 400 });
       }
+      // Take the unit first: whether one was there decides what a
+      // withdrawal may hand back.
+      let holdsDemand = false;
+      if (input.zone !== undefined) {
+        const taken = consumeDemand(ctx.demands, input.zone);
+        holdsDemand = taken.took;
+        setDemands(ctx, taken.counts);
+      }
       const id = nextTaskId();
       ctx.tasks.set(id, {
         id,
         // checkNode proved the dropoff above; the cast tells TS what it proved.
         dropoff: input.dropoff as string,
-        ...(input.zone === undefined ? {} : { zone: input.zone }),
+        ...(input.zone === undefined ? {} : { zone: input.zone, holdsDemand }),
         status: "requested",
         createdAt: Date.now(),
       });
-      if (input.zone !== undefined) {
-        setDemands(ctx, consumeDemand(ctx.demands, input.zone));
-      }
       return { ok: true, taskId: id };
     })
     .post("/api/sites/:name/tasks/:taskId/pickup", async ({ headers, params, body }) => {
@@ -751,9 +756,11 @@ export function buildApp(
       const task = ctx.tasks.get(id);
       if (!task) throw Object.assign(new Error("unknown task"), { status: 404 });
       // Withdrawing a request returns its demand unit: the need did not
-      // go away just because nobody will drive it.
+      // go away just because nobody will drive it. Only if it took one —
+      // a request raised against a zone already at zero holds nothing,
+      // and refunding it would conjure demand nobody signalled.
       if (task.status === "requested") {
-        if (task.zone !== undefined) {
+        if (task.zone !== undefined && task.holdsDemand) {
           setDemands(ctx, addDemand(ctx.demands, task.zone, 1));
         }
         ctx.tasks.delete(id);
