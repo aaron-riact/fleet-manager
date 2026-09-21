@@ -494,6 +494,10 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         // from dispatch, tasks, and the order composer.
         onOrderDone: (serial) => {
           if (cancelled) return;
+          // Queued work first, same as the server: parking marks the robot
+          // busy as it dispatches, so pumping only on the later onOrders
+          // left every job with a round trip to a spot in front of it.
+          pumpDemoTasks();
           autoParkAfterTour(serial);
         },
       });

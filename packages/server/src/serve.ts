@@ -249,6 +249,12 @@ export async function buildSiteContexts(
           for (const send of [...historySubs]) send(history);
         },
         onOrderDone: (serial) => {
+          // Queued work gets first refusal on the robot we just freed.
+          // This runs before onOrders (emitDone precedes emitOrders), and
+          // parking marks the robot busy the moment it dispatches, so
+          // leaving the pump until then sent it to a spot and back between
+          // every job. The isBusy check below sees whatever it took.
+          pumpSiteTasks({ site, fleet: fleet.fleet, poses, tasks, demands, poseTtlMs });
           // Finished tours clear the graph into parking, like the source:
           // idle robots wait off-graph holding nothing instead of sitting
           // on nodes other tours must route around. Skipped with no
