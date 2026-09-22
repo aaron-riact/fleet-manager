@@ -406,7 +406,14 @@ export default function App({
   const backend = useMemo(
     () =>
       effective
-        ? (createBackend?.(effective) ?? createHttpBackend(API_BASE, effective.token))
+        ? (createBackend?.(effective) ??
+          createHttpBackend(API_BASE, effective.token, undefined, undefined, {
+            // A dead token is dropped, or every reload would reuse it.
+            onSessionEnded: () => {
+              clearSession();
+              setSession(null);
+            },
+          }))
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [effective?.token],

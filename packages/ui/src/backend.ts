@@ -184,12 +184,39 @@ function watchStream<T>(
   return () => source.close();
 }
 
+export interface HttpBackendOptions {
+  /** The server refused this token: the host drops it and shows login. */
+  onSessionEnded?: () => void;
+}
+
 export function createHttpBackend(
   baseUrl: string,
   token: string,
   fetchFn: FetchFn = fetch,
   openEventSource?: EventSourceFactory,
+  options: HttpBackendOptions = {},
 ): Backend {
+  // EventSource hides the status that closed it. Ask the server whether
+  // the token still holds: only a 401 ends the session, so a 500 or 403
+  // leaves the operator logged in. Streams tend to die together, hence
+  // one question for all of them.
+  let probing: Promise<void> | undefined;
+  const checkSession = () => {
+    probing ??= fetchFn(`${baseUrl}/api/me`, { headers: { authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (res.status === 401) options.onSessionEnded?.();
+      })
+      .catch(() => {
+        /* unreachable server: not a verdict on the session */
+      })
+      .finally(() => {
+        probing = undefined;
+      });
+  };
+  const lostThen = (onLost?: OnStreamLost): OnStreamLost => () => {
+    onLost?.();
+    checkSession();
+  };
   const treatyApi = (fetch: FetchFn) =>
     treaty<FleetApi>(baseUrl, {
       fetcher: fetch as typeof fetch,
@@ -199,15 +226,15 @@ export function createHttpBackend(
     listSites: () => fetchSites(baseUrl, token, fetchFn),
     getMap: (site: string) => fetchMap(baseUrl, token, site, fetchFn),
     watchPoses: (site, onPose, onLost) =>
-      watchStream(baseUrl, token, site, "poses", onPose, openEventSource, onLost),
+      watchStream(baseUrl, token, site, "poses", onPose, openEventSource, lostThen(onLost)),
     watchLocks: (site, onLocks, onLost) =>
-      watchStream(baseUrl, token, site, "locks", onLocks, openEventSource, onLost),
+      watchStream(baseUrl, token, site, "locks", onLocks, openEventSource, lostThen(onLost)),
     watchOrders: (site, onOrders, onLost) =>
-      watchStream(baseUrl, token, site, "orders", onOrders, openEventSource, onLost),
+      watchStream(baseUrl, token, site, "orders", onOrders, openEventSource, lostThen(onLost)),
     watchHistory: (site, onHistory, onLost) =>
-      watchStream(baseUrl, token, site, "history", onHistory, openEventSource, onLost),
+      watchStream(baseUrl, token, site, "history", onHistory, openEventSource, lostThen(onLost)),
     watchConnections: (site, onConns, onLost) =>
-      watchStream(baseUrl, token, site, "connections", onConns, openEventSource, onLost),
+      watchStream(baseUrl, token, site, "connections", onConns, openEventSource, lostThen(onLost)),
     dispatchOrder: async (site, input) => {
       ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.post({
@@ -290,7 +317,7 @@ export function createHttpBackend(
       }
     },
     watchDemands: (site, onDemands, onLost) =>
-      watchStream(baseUrl, token, site, "demands", onDemands, openEventSource, onLost),
+      watchStream(baseUrl, token, site, "demands", onDemands, openEventSource, lostThen(onLost)),
     bumpDemand: async (site, input) => {
       ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).demand.post(input);

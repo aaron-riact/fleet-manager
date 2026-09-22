@@ -392,3 +392,69 @@ describe("createHttpBackend", () => {
     stop();
   });
 });
+
+describe("createHttpBackend session end", () => {
+  function closingSources() {
+    const sources: Array<{
+      onmessage: ((event: { data: string }) => void) | null;
+      onerror: ((event: unknown) => void) | null;
+      readyState: number;
+      close(): void;
+    }> = [];
+    const open = () => {
+      const source = { onmessage: null, onerror: null, readyState: 0, close() {} };
+      sources.push(source);
+      return source;
+    };
+    const closeAll = () => {
+      for (const s of sources) {
+        s.readyState = 2;
+        s.onerror!(new Error("closed"));
+      }
+    };
+    return { open, closeAll };
+  }
+
+  function meAnswering(status: number) {
+    const calls: string[] = [];
+    const fetchFn = (async (input: RequestInfo | URL) => {
+      calls.push(String(input instanceof Request ? input.url : input));
+      return new Response(JSON.stringify(status === 200 ? { username: "u", sites: [] } : { error: "x" }), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+    return { calls, fetchFn };
+  }
+
+  test("lost streams on a dead session end it, asking the server once", async () => {
+    // A 401 on a stream closes it for good, and the UI kept the dead token
+    // forever: every reload reused it and the login form never came back.
+    const { open, closeAll } = closingSources();
+    const { calls, fetchFn } = meAnswering(401);
+    let ended = 0;
+    const backend = createHttpBackend("http://x", "t", fetchFn, open, { onSessionEnded: () => void ended++ });
+    let lost = 0;
+    backend.watchLocks("coalescent", () => {}, () => void lost++);
+    backend.watchOrders("coalescent", () => {}, () => void lost++);
+    closeAll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(lost).toBe(2);
+    expect(calls.filter((u) => u.endsWith("/api/me"))).toHaveLength(1);
+    expect(ended).toBe(1);
+  });
+
+  test("lost streams on a live session only report the loss", async () => {
+    // A 500 or 403 closes EventSource just the same; that is no reason to log out.
+    const { open, closeAll } = closingSources();
+    const { fetchFn } = meAnswering(200);
+    let ended = 0;
+    const backend = createHttpBackend("http://x", "t", fetchFn, open, { onSessionEnded: () => void ended++ });
+    let lost = 0;
+    backend.watchLocks("coalescent", () => {}, () => void lost++);
+    closeAll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(lost).toBe(1);
+    expect(ended).toBe(0);
+  });
+});
