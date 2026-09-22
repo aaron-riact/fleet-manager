@@ -45,6 +45,34 @@ describe("fleet locks", () => {
     expect(seen.flat()).toContain("b");
   });
 
+  test("an idle hold can be listed and released, waking its waiter", () => {
+    // A robot that ends a tour keeps the node it stands on. Its next tour
+    // only unlocks nodes on its own path, so the fleet needs to see that
+    // hold and give it up once the robot has driven off it.
+    const locks = buildLocks(corridor);
+    const r1 = locks.lockerFor("r1").makePathLocker(["a", "b"], () => {});
+    r1.arrivedAt(0);
+    r1.arrivedAt(1);
+    r1.clearAllExceptLastPathLocks();
+    expect(locks.heldNodes("r1")).toEqual(["b"]);
+
+    let granted: NextNode[] = [];
+    locks.lockerFor("r2").makePathLocker(["b", "a"], (next) => {
+      granted = next;
+    }).arrivedAt(0);
+    expect(granted).toEqual([]);
+
+    locks.releaseNode("r1", "b");
+    expect(locks.heldNodes("r1")).toEqual([]);
+    expect(granted.map((n) => n.node)).toEqual(["b", "a"]);
+  });
+
+  test("held nodes leave out off-graph pseudo-nodes", () => {
+    const locks = buildLocks(corridor);
+    locks.lockerFor("r1").makePathLocker(["__start-1", "a"], () => {}).arrivedAt(0);
+    expect(locks.heldNodes("r1")).toEqual(["a"]);
+  });
+
   test("off-graph pseudo-nodes resolve to free locks, excluded from snapshots", () => {
     const locks = buildLocks(corridor);
     const r = locks.lockerFor("r1").makePathLocker(["__start-1", "a", "b"], () => {});

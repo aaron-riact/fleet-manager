@@ -37,6 +37,14 @@ export interface FleetLocks {
   lockerFor(agent: string): AgentLocker;
   /** Idle hold: a robot sitting on a graph node keeps owning it. */
   holdNode(agent: string, nodeId: string): boolean;
+  /** Graph nodes the agent holds right now (off-graph pseudo-nodes excluded). */
+  heldNodes(agent: string): string[];
+  /**
+   * Give up one node, waking whoever waits on it. For holds no path of
+   * the agent's covers any more, such as the node it idled on before
+   * driving off on a tour that does not pass it.
+   */
+  releaseNode(agent: string, nodeId: string): void;
   snapshot(): LockSnapshot;
 }
 
@@ -113,6 +121,13 @@ export function buildLocks(site: Site): FleetLocks {
       };
     },
     holdNode: (agent: string, nodeId: string) => getLock(nodeId).requestLock(agent, nodeId),
+    heldNodes: (agent: string) =>
+      [...nodeLocks].filter(([, lock]) => lock.isLocked(agent)).map(([id]) => id),
+    releaseNode: (agent: string, nodeId: string) => {
+      const freed = getLock(nodeId).unlock(agent) ?? new Set<string>();
+      freed.delete(agent);
+      creator.notifyWaiters(freed);
+    },
     snapshot: () => ({
       nodeLocks: [...nodeLocks].map(([id, lock]) => ({
         id,
