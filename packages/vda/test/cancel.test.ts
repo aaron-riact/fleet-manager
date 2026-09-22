@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { AgvController, MasterController, VirtualAgvAdapter } from "vda-5050-lib";
 import type { AgvId, ClientOptions } from "vda-5050-lib";
+import { ActionStatus } from "vda-5050-lib";
 import { buildLocks } from "@fleet-manager/core";
 import { Fleet } from "../src/fleet.js";
 import { MemoryHub, attachMemoryTransport } from "../src/fakeMqtt.js";
@@ -83,6 +84,64 @@ describe("Fleet.cancel", () => {
       await master.stop();
     }
   }, 60_000);
+
+  test("a tour dispatched as the cancelled one ends keeps the old path unlocked", async () => {
+    // The host pumps queued work out of onOrders, which the cancelled
+    // branch fires before cancel() resumes. By then a replacement locker
+    // is live, so cancel() skips its clear: the cancelled path must
+    // already be released or its nodes stay locked under the robot's name.
+    const twoLines = {
+      name: "two-lines",
+      nodes: [...site.nodes, { id: "d", x: 0, y: 30 }, { id: "e", x: 30, y: 30 }],
+      links: [...site.links, { source: "d", destination: "e", bidirectional: true }],
+    };
+    const locks = buildLocks(twoLines);
+    const orderCallbacks: Array<{
+      onOrderProcessed: (error: unknown, cancelled: boolean, active: boolean) => void;
+    }> = [];
+    let cancelAction: { onActionStateChanged: (s: { actionStatus: ActionStatus }) => void } | undefined;
+    const master = {
+      assignOrder: async (_agv: unknown, _order: unknown, cb: (typeof orderCallbacks)[number]) => {
+        orderCallbacks.push(cb);
+      },
+      initiateInstantActions: async (_agv: unknown, _actions: unknown, cb: typeof cancelAction) => {
+        cancelAction = cb;
+      },
+      createUuid: () => "cancel-1",
+    } as unknown as MasterController;
+    const r: AgvId = { manufacturer: "RobotCompany", serialNumber: "cx-1" };
+    let replacement: Promise<string> | undefined;
+    const fleet: Fleet = new Fleet(master, locks, {
+      onOrders: () => {
+        if (replacement || fleet.isBusy("cx-1")) return;
+        replacement = fleet.dispatch(r, [
+          { nodeId: "d", x: 0, y: 30 },
+          { nodeId: "e", x: 30, y: 30 },
+        ]);
+        replacement.catch(() => {});
+      },
+    });
+    const driving = fleet.dispatch(r, tour);
+    driving.catch(() => {});
+    await pollFor(
+      "tour holding a",
+      () => locks.snapshot().nodeLocks.find((n) => n.id === "a")?.owners.includes("cx-1") ?? false,
+      2_000,
+    );
+    const cancelling = fleet.cancel(r);
+    await pollFor("cancel sent", () => cancelAction !== undefined, 2_000);
+    // Order state reaches the master before the instant action's state.
+    orderCallbacks[0]!.onOrderProcessed(undefined, true, false);
+    cancelAction!.onActionStateChanged({ actionStatus: ActionStatus.Finished });
+    await cancelling;
+    await expect(driving).rejects.toThrow(/cancelled/);
+    expect(replacement).toBeDefined();
+    const held = locks
+      .snapshot()
+      .nodeLocks.filter((n) => n.owners.includes("cx-1"))
+      .map((n) => n.id);
+    expect(held.filter((id) => ["a", "b", "c"].includes(id))).toEqual([]);
+  }, 10_000);
 
   test("cancel without an active order throws", async () => {
     const locks = buildLocks(site);

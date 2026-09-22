@@ -486,8 +486,11 @@ export class Fleet {
             this.cancelled.delete(serial);
             this.activeOrders.delete(serial);
             finish("cancelled");
-            this.emitOrders();
+            // Same as the failed branch: onOrders below can pump the next
+            // tour, and cancel() then skips its clear for that tour's sake.
+            granting.clearAllPathLocks();
             this.emit();
+            this.emitOrders();
             reject(new Error(`order cancelled for robot "${serial}"`));
             return;
           }
