@@ -140,7 +140,14 @@ export class Auth {
       await this.store.deleteSession(token);
       throw unauthorized("session expired");
     }
-    return { username: session.username, sites: session.sites };
+    // The users file decides, not the row: sessions can outlive a restart
+    // (SESSIONS_FILE) that removed the user or changed their sites.
+    const user = this.users.find((u) => u.username === session.username);
+    if (!user) {
+      await this.store.deleteSession(token);
+      throw unauthorized("invalid session");
+    }
+    return { username: user.username, sites: user.sites };
   }
 
   async logout(token: string): Promise<void> {

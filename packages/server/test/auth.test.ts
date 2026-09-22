@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createSrp, createVerifier, TEST_GROUP } from "@fleet-manager/core";
 import { Auth } from "../src/auth.js";
 import type { AuthOptions } from "../src/auth.js";
+import { MemorySessionStore } from "../src/sessions.js";
 
 const pair = createSrp(TEST_GROUP);
 const { client } = pair;
@@ -74,6 +75,25 @@ describe("Auth", () => {
     const result = await login(auth, "alice@cmr", "s3cret");
     await auth.logout(result.token);
     await expect(auth.me(result.token)).rejects.toThrow(/invalid session/);
+  });
+
+  test("a session answers to the users file of the running server", async () => {
+    // Sessions outlive a restart (SESSIONS_FILE), and me() used to trust
+    // the stored row: a user removed from users.json, or moved off a site,
+    // kept the old access until the TTL ran out.
+    const { users } = await setup();
+    const store = new MemorySessionStore();
+    const alice = users[0]!;
+    const before = testAuth([{ ...alice, sites: ["coalescent", "other"] }], { store });
+    const { token } = await login(before, "alice@cmr", "s3cret");
+
+    const narrowed = testAuth([alice], { store });
+    expect(await narrowed.me(token)).toEqual({ username: "alice@cmr", sites: ["coalescent"] });
+
+    const removed = testAuth([], { store });
+    await expect(removed.me(token)).rejects.toMatchObject({ status: 401 });
+    // The row is gone, not just refused: re-adding the user needs a new login.
+    expect(await store.getSession(token)).toBeUndefined();
   });
 
   test("sessions expire after sessionTtlMs", async () => {
