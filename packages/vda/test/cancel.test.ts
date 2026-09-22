@@ -40,6 +40,38 @@ async function pollFor(label: string, cond: () => boolean, timeoutMs: number): P
   }
 }
 
+/** Rejects if `promise` has not settled in time, so a hang fails the test. */
+function within<T>(label: string, promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** A master that captures callbacks, so a test replays the lib's events in order. */
+function heldMaster() {
+  const held = {
+    orderCallbacks: [] as Array<{
+      onOrderProcessed: (error: unknown, cancelled: boolean, active: boolean) => void;
+    }>,
+    cancelAction: undefined as
+      | { onActionStateChanged: (s: { actionStatus: ActionStatus }, error: unknown) => void }
+      | undefined,
+    master: undefined as unknown as MasterController,
+  };
+  held.master = {
+    assignOrder: async (_agv: unknown, _order: unknown, cb: (typeof held.orderCallbacks)[number]) => {
+      held.orderCallbacks.push(cb);
+    },
+    initiateInstantActions: async (_agv: unknown, _actions: unknown, cb: typeof held.cancelAction) => {
+      held.cancelAction = cb;
+    },
+    createUuid: () => "cancel-1",
+  } as unknown as MasterController;
+  return held;
+}
+
 describe("Fleet.cancel", () => {
   test("cancelling mid-tour stops the robot and frees everything", async () => {
     const locks = buildLocks(site);
@@ -96,19 +128,8 @@ describe("Fleet.cancel", () => {
       links: [...site.links, { source: "d", destination: "e", bidirectional: true }],
     };
     const locks = buildLocks(twoLines);
-    const orderCallbacks: Array<{
-      onOrderProcessed: (error: unknown, cancelled: boolean, active: boolean) => void;
-    }> = [];
-    let cancelAction: { onActionStateChanged: (s: { actionStatus: ActionStatus }) => void } | undefined;
-    const master = {
-      assignOrder: async (_agv: unknown, _order: unknown, cb: (typeof orderCallbacks)[number]) => {
-        orderCallbacks.push(cb);
-      },
-      initiateInstantActions: async (_agv: unknown, _actions: unknown, cb: typeof cancelAction) => {
-        cancelAction = cb;
-      },
-      createUuid: () => "cancel-1",
-    } as unknown as MasterController;
+    const held = heldMaster();
+    const { master, orderCallbacks } = held;
     const r: AgvId = { manufacturer: "RobotCompany", serialNumber: "cx-1" };
     let replacement: Promise<string> | undefined;
     const fleet: Fleet = new Fleet(master, locks, {
@@ -129,18 +150,41 @@ describe("Fleet.cancel", () => {
       2_000,
     );
     const cancelling = fleet.cancel(r);
-    await pollFor("cancel sent", () => cancelAction !== undefined, 2_000);
+    await pollFor("cancel sent", () => held.cancelAction !== undefined, 2_000);
     // Order state reaches the master before the instant action's state.
     orderCallbacks[0]!.onOrderProcessed(undefined, true, false);
-    cancelAction!.onActionStateChanged({ actionStatus: ActionStatus.Finished });
+    held.cancelAction!.onActionStateChanged({ actionStatus: ActionStatus.Finished }, undefined);
     await cancelling;
     await expect(driving).rejects.toThrow(/cancelled/);
     expect(replacement).toBeDefined();
-    const held = locks
+    const owned = locks
       .snapshot()
       .nodeLocks.filter((n) => n.owners.includes("cx-1"))
       .map((n) => n.id);
-    expect(held.filter((id) => ["a", "b", "c"].includes(id))).toEqual([]);
+    expect(owned.filter((id) => ["a", "b", "c"].includes(id))).toEqual([]);
+  }, 10_000);
+
+  test("a cancel the AGV reports FAILED rejects, and the tour ends as it really does", async () => {
+    // The lib reports a FAILED instant action through onActionStateChanged,
+    // never onActionError, and drops it afterwards: waiting for Finished
+    // alone hung cancel(), and the POST cancel with it, for good.
+    const locks = buildLocks(site);
+    const held = heldMaster();
+    const fleet = new Fleet(held.master, locks);
+    const r: AgvId = { manufacturer: "RobotCompany", serialNumber: "cx-2" };
+    const driving = fleet.dispatch(r, tour);
+    await pollFor("order assigned", () => held.orderCallbacks.length > 0, 2_000);
+    const cancelling = fleet.cancel(r);
+    await pollFor("cancel sent", () => held.cancelAction !== undefined, 2_000);
+    held.cancelAction!.onActionStateChanged(
+      { actionStatus: ActionStatus.Failed },
+      { errorDescription: "no order to cancel" },
+    );
+    await expect(within("cancel settling", cancelling, 2_000)).rejects.toThrow(/no order to cancel/);
+    // The AGV kept driving: its normal end records as completed, not cancelled.
+    held.orderCallbacks[0]!.onOrderProcessed(undefined, false, false);
+    await expect(driving).resolves.toBeString();
+    expect(fleet.orderHistory()[0]).toMatchObject({ serial: "cx-2", outcome: "completed" });
   }, 10_000);
 
   test("cancel without an active order throws", async () => {

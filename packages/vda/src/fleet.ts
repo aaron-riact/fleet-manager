@@ -605,8 +605,15 @@ export class Fleet {
               ],
             } as unknown as Headerless<InstantActions>,
             {
-              onActionStateChanged: (actionState) => {
+              onActionStateChanged: (actionState, error) => {
                 if (actionState.actionStatus === ActionStatus.Finished) resolve();
+                // The lib reports FAILED here, not via onActionError, and
+                // drops the action after it: nothing else would settle us.
+                else if (actionState.actionStatus === ActionStatus.Failed) {
+                  const description = (error as { errorDescription?: string } | undefined)
+                    ?.errorDescription;
+                  reject(new Error(description ?? `cancel refused by robot "${serial}"`));
+                }
               },
               onActionError: (error) => reject(error),
             },
