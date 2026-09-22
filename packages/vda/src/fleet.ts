@@ -168,6 +168,8 @@ export class Fleet {
   private readonly cancelled = new Set<string>();
   /** Tour-ending action failure reasons, consumed by onOrderProcessed. */
   private readonly actionFailed = new Map<string, string>();
+  /** Robots driving a park order: busy, but not an active (locked) order. */
+  private readonly parking = new Set<string>();
   private readonly history: OrderHistory[] = [];
   private readonly maxEntries: number;
   private readonly maxAgeMs: number | undefined;
@@ -256,9 +258,9 @@ export class Fleet {
     this.emitHistory();
   }
 
-  /** True while the robot has an order in flight. */
+  /** True while the robot has an order in flight, parking included. */
   isBusy(serialNumber: string): boolean {
-    return this.activeOrders.has(serialNumber);
+    return this.activeOrders.has(serialNumber) || this.parking.has(serialNumber);
   }
 
   /**
@@ -275,6 +277,9 @@ export class Fleet {
     const existing = this.activeOrders.get(serial);
     if (existing) {
       throw new Error(`robot ${serial} is busy with order ${existing.orderId} — wait or cancel first`);
+    }
+    if (this.parking.has(serial)) {
+      throw new Error(`robot ${serial} is busy parking — wait until it arrives`);
     }
     const first = waypoints[0]!;
     // Off-graph starts (parking spots): prepend the current pose as a
@@ -313,6 +318,10 @@ export class Fleet {
     spot: { id: string; x: number; y: number },
     opts: { from?: { x: number; y: number } } = {},
   ): Promise<void> {
+    const serial = agvId.serialNumber ?? "unknown";
+    if (this.isBusy(serial)) {
+      throw new Error(`robot ${serial} is busy — wait or cancel first`);
+    }
     const points =
       opts.from && Math.hypot(spot.x - opts.from.x, spot.y - opts.from.y) > APPROACH_THRESHOLD_M
         ? [
@@ -320,8 +329,18 @@ export class Fleet {
             { nodeId: `park-${spot.id}`, x: spot.x, y: spot.y },
           ]
         : [{ nodeId: `park-${spot.id}`, x: spot.x, y: spot.y }];
-    await this.directOrder(agvId, points);
-    this.locks.lockerFor(agvId.serialNumber ?? "unknown").clearAllLocks();
+    // Busy for the whole drive: the closing clear goes by robot name, so a
+    // tour handed out meanwhile would lose its locks to it.
+    this.parking.add(serial);
+    try {
+      await this.directOrder(agvId, points);
+      this.locks.lockerFor(serial).clearAllLocks();
+      this.emit();
+    } finally {
+      this.parking.delete(serial);
+      // The robot is free again: onOrders is where hosts pump queued work.
+      this.emitOrders();
+    }
   }
 
   /**

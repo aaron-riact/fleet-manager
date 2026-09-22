@@ -294,3 +294,76 @@ describe("order history", () => {
     expect(fleet.orderHistory()).toEqual([]);
   });
 });
+
+describe("parking", () => {
+  const robot = { manufacturer: "Test", serialNumber: "p-1" };
+  const spot = { id: "p1", x: 20, y: 20 };
+
+  /** Captures each order's callbacks; the test ends orders by hand. */
+  function heldMaster() {
+    const ends: Array<(error?: unknown) => void> = [];
+    const master = {
+      assignOrder: async (
+        _agv: unknown,
+        _order: unknown,
+        cb: { onOrderProcessed: (error: unknown, cancelled: boolean, active: boolean) => void },
+      ) => {
+        ends.push((error) => cb.onOrderProcessed(error, false, false));
+      },
+      createUuid: () => "u",
+    } as unknown as MasterController;
+    return { master, ends };
+  }
+
+  function countingLocks() {
+    let clears = 0;
+    const locks = {
+      lockerFor: () => ({ clearAllLocks: () => void clears++ }),
+      snapshot: () => ({ nodeLocks: [], edgeLocks: [] }),
+    } as unknown as FleetLocks;
+    return { locks, clears: () => clears };
+  }
+
+  test("a parking robot is busy, and refuses a tour until it arrives", async () => {
+    // park() used to be invisible to isBusy: the task pump handed the robot
+    // a tour mid-drive, and park's closing clearAllLocks (by robot name)
+    // then took that tour's locks with it.
+    const { master, ends } = heldMaster();
+    const { locks, clears } = countingLocks();
+    const fleet = new Fleet(master, locks);
+    const parking = fleet.park(robot, spot);
+    await Promise.resolve();
+    expect(fleet.isBusy("p-1")).toBe(true);
+    await expect(fleet.dispatch(robot, waypoints)).rejects.toThrow(/busy/);
+    await expect(fleet.park(robot, spot)).rejects.toThrow(/busy/);
+    ends[0]!();
+    await parking;
+    expect(fleet.isBusy("p-1")).toBe(false);
+    expect(clears()).toBe(1);
+  });
+
+  test("the end of a park fires onOrders, so queued work moves", async () => {
+    const { master, ends } = heldMaster();
+    const seen: boolean[] = [];
+    const fleet: Fleet = new Fleet(master, countingLocks().locks, {
+      onOrders: () => seen.push(fleet.isBusy("p-1")),
+    });
+    const parking = fleet.park(robot, spot);
+    await Promise.resolve();
+    ends[0]!();
+    await parking;
+    expect(seen.at(-1)).toBe(false);
+  });
+
+  test("a failed park frees the robot without clearing its locks", async () => {
+    const { master, ends } = heldMaster();
+    const { locks, clears } = countingLocks();
+    const fleet = new Fleet(master, locks);
+    const parking = fleet.park(robot, spot);
+    await Promise.resolve();
+    ends[0]!(new Error("blocked"));
+    await expect(parking).rejects.toThrow(/blocked/);
+    expect(fleet.isBusy("p-1")).toBe(false);
+    expect(clears()).toBe(0);
+  });
+});
