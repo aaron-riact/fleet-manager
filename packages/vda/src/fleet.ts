@@ -393,6 +393,10 @@ export class Fleet {
     const { order } = buildIncrementalOrder(orderId, waypoints, () => this.master.createUuid());
     const nodeIds = waypoints.map((w) => w.nodeId);
     const locker = this.locks.lockerFor(serial);
+    // Holds from before this tour (the node the robot idled on) that this
+    // path will not unlock. Kept while the robot still stands at its start,
+    // released once it reaches its first node past it.
+    let staleHolds = this.locks.heldNodes(serial).filter((id) => !nodeIds.includes(id));
     // Robot-reported traversal; indexed by sequenceId, not node id (loop
     // tours revisit nodes). History-grade: also used to build the route.
     const traversed: Array<{ nodeId: string; index: number }> = [];
@@ -455,6 +459,11 @@ export class Fleet {
           if (index >= 0 && index < nodeIds.length) {
             baseSeq = Math.max(baseSeq, index * 2);
             granting.arrivedAt(index);
+            if (index >= 1 && staleHolds.length > 0) {
+              const release = staleHolds;
+              staleHolds = [];
+              for (const nodeId of release) this.locks.releaseNode(serial, nodeId);
+            }
             traversed.push({ nodeId: node.nodeId, index });
             this.events.onArrived?.(serial, node.nodeId, index);
             this.emit();
