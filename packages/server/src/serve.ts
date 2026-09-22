@@ -432,7 +432,8 @@ export function buildApp(
     .options("/api/*", ({ set }) => {
       set.status = 204;
       set.headers["Access-Control-Allow-Headers"] = "authorization, content-type";
-      set.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+      // Every method an /api route serves (cors.test.ts checks the list).
+      set.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS";
       return null;
     })
     .get("/api/health", () => ({ ok: true }))
