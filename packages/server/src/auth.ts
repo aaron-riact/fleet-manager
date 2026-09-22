@@ -31,6 +31,11 @@ const DEFAULT_PENDING_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const DEFAULT_MAX_PENDING = 1000;
 
+/** A credential problem, not a server fault: the API answers 401. */
+function unauthorized(message: string): Error {
+  return Object.assign(new Error(message), { status: 401 });
+}
+
 /**
  * SRP login flow over REST. Pure logic (no I/O besides the injected
  * store): the server package wires it to HTTP. Pending challenges are
@@ -75,8 +80,8 @@ export class Auth {
   async start(username: string): Promise<{ salt: string; serverEphemeral: string }> {
     const user = this.users.find((u) => u.username === username);
     // Same shape for unknown users would be nicer (anti-enumeration);
-    // for now fail closed and let the API map it to 401.
-    if (!user) throw new Error(`unknown user: "${username}"`);
+    // for now fail closed with a 401.
+    if (!user) throw unauthorized(`unknown user: "${username}"`);
     // Count only challenges still inside the TTL. Counting expired ones
     // too meant abandoned logins piled up until every login 429'd, and
     // only a restart (the one purge) cleared it.
@@ -104,18 +109,24 @@ export class Auth {
   }): Promise<{ token: string; username: string; sites: string[]; proof: string }> {
     const challenge = await this.store.takeChallenge(input.serverEphemeral);
     if (!challenge || this.now() - challenge.createdAt > this.pendingTtlMs) {
-      throw new Error("challenge expired or unknown");
+      throw unauthorized("challenge expired or unknown");
     }
     const user = this.users.find((u) => u.username === challenge.username);
-    if (!user) throw new Error(`unknown user: "${challenge.username}"`);
-    const session = await this.srp.server.deriveSession(
-      challenge.secret,
-      input.clientEphemeral,
-      user.salt,
-      user.username,
-      user.verifier,
-      input.proof,
-    );
+    if (!user) throw unauthorized(`unknown user: "${challenge.username}"`);
+    let session: { proof: string };
+    try {
+      session = await this.srp.server.deriveSession(
+        challenge.secret,
+        input.clientEphemeral,
+        user.salt,
+        user.username,
+        user.verifier,
+        input.proof,
+      );
+    } catch {
+      // A wrong password and a malformed ephemeral both land here.
+      throw unauthorized("incorrect password");
+    }
     const token = this.newToken();
     await this.store.saveSession({ token, username: user.username, sites: user.sites, createdAt: this.now() });
     return { token, username: user.username, sites: user.sites, proof: session.proof };
@@ -124,10 +135,10 @@ export class Auth {
   /** Validate a Bearer token (GET /api/me, request auth). */
   async me(token: string): Promise<Pick<Session, "username" | "sites">> {
     const session = await this.store.getSession(token);
-    if (!session) throw new Error("invalid session");
+    if (!session) throw unauthorized("invalid session");
     if (this.now() - session.createdAt > this.sessionTtlMs) {
       await this.store.deleteSession(token);
-      throw new Error("session expired");
+      throw unauthorized("session expired");
     }
     return { username: session.username, sites: session.sites };
   }

@@ -412,11 +412,18 @@ export function buildApp(
   const finishLimiter = new RateLimiter({ limit: options.loginFinishPerMin ?? 60, windowMs: 60_000 });
   return new Elysia()
     .onError(({ error, set }) => {
-      const status = (error as { status?: number }).status ?? 401;
+      // Handlers tag what they expect (400/401/403/404/409/429). Anything
+      // untagged is a server fault: a 401 here read as "log in again".
+      const status = (error as { status?: number }).status ?? 500;
       set.status = status;
       // Errors skip onAfterHandle, so set CORS here too — otherwise the
       // browser hides the real status behind an opaque CORS failure.
       set.headers["Access-Control-Allow-Origin"] = "*";
+      if (status >= 500) {
+        // Internals (hosts, SQL, stack) stay in the log, not the response.
+        console.error("request failed", error);
+        return { error: "internal error" };
+      }
       return { error: (error as Error).message };
     })
     .onAfterHandle(({ set }) => {
