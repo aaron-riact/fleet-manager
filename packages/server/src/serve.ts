@@ -97,7 +97,17 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function liveStream<T>(initial: T | undefined, subscribe: (send: (value: T) => void) => () => void): Response {
+interface StreamAccess {
+  heartbeatMs: number;
+  /** Re-checked on every heartbeat; false ends the stream. */
+  stillAllowed: () => Promise<boolean>;
+}
+
+function liveStream<T>(
+  initial: T | undefined,
+  subscribe: (send: (value: T) => void) => () => void,
+  access: StreamAccess,
+): Response {
   let cleanup: (() => void) | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   // One exit for every way a stream ends: cancelled, or found dead on a
@@ -134,8 +144,20 @@ function liveStream<T>(initial: T | undefined, subscribe: (send: (value: T) => v
           controller.enqueue(`: ping\n\n`);
         } catch {
           teardown();
+          return;
         }
-      }, 15_000);
+        // The token was checked once, at open. Without this, a stream
+        // outlived logout, expiry and removal of its user.
+        void access.stillAllowed().then((allowed) => {
+          if (allowed || heartbeat === undefined) return;
+          teardown();
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        });
+      }, access.heartbeatMs);
     },
     cancel() {
       teardown();
@@ -403,11 +425,14 @@ export function buildApp(
     loginFinishPerMin?: number;
     trustProxyHeader?: boolean;
     poseTtlMs?: number;
+    /** SSE keepalive, and how often an open stream re-checks its token. */
+    streamHeartbeatMs?: number;
   } = {},
 ) {
   const defaultManufacturer = options.defaultManufacturer ?? "RobotCompany";
   const poseTtlMs = options.poseTtlMs ?? DEFAULT_POSE_TTL_MS;
   const trustProxyHeader = options.trustProxyHeader ?? false;
+  const streamHeartbeatMs = options.streamHeartbeatMs ?? 15_000;
   const startLimiter = new RateLimiter({ limit: options.loginStartPerMin ?? 30, windowMs: 60_000 });
   const finishLimiter = new RateLimiter({ limit: options.loginFinishPerMin ?? 60, windowMs: 60_000 });
   return new Elysia()
@@ -480,18 +505,30 @@ export function buildApp(
       if (!ctx) throw Object.assign(new Error("unknown site"), { status: 404 });
       if (!me.sites.includes(ctx.site.name))
         throw Object.assign(new Error("forbidden site"), { status: 403 });
+      const siteName = ctx.site.name;
+      const access: StreamAccess = {
+        heartbeatMs: streamHeartbeatMs,
+        // Only a verdict on the session ends the stream. A store fault
+        // must not: the reconnect would get a 500, and EventSource gives
+        // up for good on any non-200.
+        stillAllowed: () =>
+          auth.me(token).then(
+            (current) => current.sites.includes(siteName),
+            (error: unknown) => (error as { status?: number }).status !== 401,
+          ),
+      };
       if (params.stream === "locks")
-        return liveStream(ctx.locks.snapshot(), (send) => fanOut(ctx.lockSubs, send));
+        return liveStream(ctx.locks.snapshot(), (send) => fanOut(ctx.lockSubs, send), access);
       if (params.stream === "orders")
-        return liveStream(ctx.fleet.activeOrderList(), (send) => fanOut(ctx.orderSubs, send));
+        return liveStream(ctx.fleet.activeOrderList(), (send) => fanOut(ctx.orderSubs, send), access);
       if (params.stream === "history")
-        return liveStream(ctx.fleet.orderHistory(), (send) => fanOut(ctx.historySubs, send));
+        return liveStream(ctx.fleet.orderHistory(), (send) => fanOut(ctx.historySubs, send), access);
       if (params.stream === "poses")
-        return liveStream<RobotPose>(undefined, (send) => fanOut(ctx.poseSubs, send));
+        return liveStream<RobotPose>(undefined, (send) => fanOut(ctx.poseSubs, send), access);
       if (params.stream === "connections")
-        return liveStream([...ctx.conns.values()], (send) => fanOut(ctx.connSubs, send));
+        return liveStream([...ctx.conns.values()], (send) => fanOut(ctx.connSubs, send), access);
       if (params.stream === "demands")
-        return liveStream(demandList(ctx.demands), (send) => fanOut(ctx.demandSubs, send));
+        return liveStream(demandList(ctx.demands), (send) => fanOut(ctx.demandSubs, send), access);
       throw Object.assign(new Error("unknown stream"), { status: 404 });
     })
     .post("/api/sites/:name/demand", async ({ headers, params, body }) => {
