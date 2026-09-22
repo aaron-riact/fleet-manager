@@ -366,4 +366,29 @@ describe("createHttpBackend", () => {
     stop();
     expect(sources[0]!.closed).toBe(true);
   });
+
+  test("a stream the browser closed for good reports itself lost", () => {
+    // EventSource retries a dropped connection (readyState CONNECTING), but
+    // a non-200 answer, such as a 401 once the session is gone, closes it
+    // for good (CLOSED). The UI used to show "live" over frozen data then.
+    const sources: Array<{
+      onmessage: ((event: { data: string }) => void) | null;
+      onerror: ((event: unknown) => void) | null;
+      readyState: number;
+      close(): void;
+    }> = [];
+    const backend = createHttpBackend("http://x", "t", undefined, () => {
+      const source = { onmessage: null, onerror: null, readyState: 0, close() {} };
+      sources.push(source);
+      return source;
+    });
+    let lost = 0;
+    const stop = backend.watchLocks("coalescent", () => {}, () => void lost++);
+    sources[0]!.onerror!(new Error("dropped"));
+    expect(lost).toBe(0);
+    sources[0]!.readyState = 2;
+    sources[0]!.onerror!(new Error("401"));
+    expect(lost).toBe(1);
+    stop();
+  });
 });

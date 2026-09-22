@@ -155,7 +155,7 @@ function ShellView({
   resolveActionLabel = defaultActionLabel,
 }: ShellProps) {
   const toast = useToast();
-  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, historyReceived, live } =
+  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, historyReceived, streamLost, live } =
     useFleetSite(backend, initialSite);
   const changeSite = (name: string) => {
     setSiteName(name);
@@ -259,11 +259,11 @@ function ShellView({
               width: 8,
               height: 8,
               borderRadius: "50%",
-              background: live ? theme.ok : theme.warn,
+              background: live ? theme.ok : streamLost ? theme.bad : theme.warn,
               boxShadow: live ? `0 0 8px ${theme.ok}` : "none",
             }}
           />
-          {live ? "live" : "connecting…"}
+          {live ? "live" : streamLost ? "stream lost — reload" : "connecting…"}
         </span>
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.6rem" }}>
           <span style={{ color: theme.textDim, fontSize: "0.85rem" }}>{session.username}</span>

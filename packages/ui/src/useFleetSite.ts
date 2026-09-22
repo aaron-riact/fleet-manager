@@ -16,6 +16,8 @@ export interface FleetSiteData {
   history: HistoryView[];
   /** The history stream has delivered at least one frame for this site. */
   historyReceived: boolean;
+  /** A stream stopped for good: what is on screen is frozen until a reload. */
+  streamLost: boolean;
   live: boolean;
 }
 
@@ -78,6 +80,7 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
   // has arrived look the same. Callers that treat the first frame as a
   // baseline need to tell them apart.
   const [historyReceived, setHistoryReceived] = useState(false);
+  const [streamLost, setStreamLost] = useState(false);
   const seenAt = useRef<Record<string, number>>({});
   const siteName = resolveSiteName(sites, wanted);
 
@@ -132,27 +135,31 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
         setOrders([]);
         setHistory([]);
         setHistoryReceived(false);
+        setStreamLost(false);
         seenAt.current = {};
         const map = await backend.getMap(name);
         if (cancelled) return;
         setSite(map);
+        const lost = () => {
+          if (!cancelled) setStreamLost(true);
+        };
         cleanups.push(
           backend.watchPoses(name, (pose) => {
             if (cancelled) return;
             seenAt.current[pose.serialNumber] = Date.now();
             setPoses((prev) => ({ ...prev, [pose.serialNumber]: pose }));
-          }),
+          }, lost),
           backend.watchLocks(name, (snap) => {
             if (!cancelled) setLocks(snap);
-          }),
+          }, lost),
           backend.watchOrders(name, (list) => {
             if (!cancelled) setOrders(list);
-          }),
+          }, lost),
           backend.watchHistory(name, (list) => {
             if (cancelled) return;
             setHistory(list);
             setHistoryReceived(true);
-          }),
+          }, lost),
         );
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load map");
@@ -175,6 +182,7 @@ export function useFleetSite(backend: Backend, initialSite?: string | null): Fle
     orders,
     history,
     historyReceived,
-    live: site !== null && error === null,
+    streamLost,
+    live: site !== null && error === null && !streamLost,
   };
 }

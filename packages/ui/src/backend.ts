@@ -71,8 +71,19 @@ export function ensureOnline(): void {
 export type EventSourceFactory = (url: string) => {
   onmessage: ((event: { data: string }) => void) | null;
   onerror: ((event: unknown) => void) | null;
+  /** EventSource.CLOSED (2) once the browser has stopped retrying. */
+  readyState?: number;
   close(): void;
 };
+
+/** EventSource.readyState once it will not reconnect by itself. */
+const EVENT_SOURCE_CLOSED = 2;
+
+/**
+ * Called when a stream has stopped for good (the browser gives up after a
+ * non-200 answer, such as a 401). Its data is frozen from then on.
+ */
+export type OnStreamLost = () => void;
 
 export interface DispatchWaypoint {
   nodeId: string;
@@ -104,11 +115,13 @@ export interface DispatchInput {
 export interface Backend {
   listSites(): Promise<string[]>;
   getMap(site: string): Promise<Site>;
-  watchPoses(site: string, onPose: (pose: LivePose) => void): Unsubscribe;
-  watchLocks(site: string, onLocks: (snap: LockSnapshot) => void): Unsubscribe;
-  watchOrders(site: string, onOrders: (orders: OrderView[]) => void): Unsubscribe;
-  watchHistory(site: string, onHistory: (history: HistoryView[]) => void): Unsubscribe;
-  watchConnections(site: string, onConns: (conns: ConnectionView[]) => void): Unsubscribe;
+  // Each watch* takes an optional onLost. Backends whose streams cannot
+  // die (the demo's in-page twin) ignore it.
+  watchPoses(site: string, onPose: (pose: LivePose) => void, onLost?: OnStreamLost): Unsubscribe;
+  watchLocks(site: string, onLocks: (snap: LockSnapshot) => void, onLost?: OnStreamLost): Unsubscribe;
+  watchOrders(site: string, onOrders: (orders: OrderView[]) => void, onLost?: OnStreamLost): Unsubscribe;
+  watchHistory(site: string, onHistory: (history: HistoryView[]) => void, onLost?: OnStreamLost): Unsubscribe;
+  watchConnections(site: string, onConns: (conns: ConnectionView[]) => void, onLost?: OnStreamLost): Unsubscribe;
   /** Send a tour. Resolves on accept; progress streams over watchOrders. */
   dispatchOrder(site: string, input: DispatchInput): Promise<void>;
   /** Park an idle robot (nearest free spot unless spotId given). */
@@ -134,7 +147,7 @@ export interface Backend {
   /** Attach the pickup that makes a request dispatchable. */
   attachPickup(site: string, taskId: string, input: { pickup: string }): Promise<void>;
   /** Live zone demand counts. */
-  watchDemands(site: string, onDemands: (demands: ZoneDemand[]) => void): Unsubscribe;
+  watchDemands(site: string, onDemands: (demands: ZoneDemand[]) => void, onLost?: OnStreamLost): Unsubscribe;
   /** Signal unit demand for a zone (+n) or reset it (0). */
   bumpDemand(site: string, input: { zone: string; count: number }): Promise<{ zone: string; demand: number }>;
 }
@@ -146,6 +159,7 @@ function watchStream<T>(
   stream: "poses" | "locks" | "orders" | "history" | "connections" | "demands",
   onEvent: (data: T) => void,
   openEventSource?: EventSourceFactory,
+  onLost?: OnStreamLost,
 ): Unsubscribe {
   const open: EventSourceFactory =
     openEventSource ??
@@ -161,8 +175,12 @@ function watchStream<T>(
   };
   // EventSource reconnects on its own after a dropped connection.
   // Closing here would make one network blip permanent and freeze the
-  // UI with stale data and no error. Only unsubscribe closes.
-  source.onerror = () => {};
+  // UI with stale data and no error. Only unsubscribe closes. A non-200
+  // answer ends it for good, though: say so, or the UI shows frozen
+  // data as live.
+  source.onerror = () => {
+    if (source.readyState === EVENT_SOURCE_CLOSED) onLost?.();
+  };
   return () => source.close();
 }
 
@@ -180,11 +198,16 @@ export function createHttpBackend(
   return {
     listSites: () => fetchSites(baseUrl, token, fetchFn),
     getMap: (site: string) => fetchMap(baseUrl, token, site, fetchFn),
-    watchPoses: (site, onPose) => watchStream(baseUrl, token, site, "poses", onPose, openEventSource),
-    watchLocks: (site, onLocks) => watchStream(baseUrl, token, site, "locks", onLocks, openEventSource),
-    watchOrders: (site, onOrders) => watchStream(baseUrl, token, site, "orders", onOrders, openEventSource),
-    watchHistory: (site, onHistory) => watchStream(baseUrl, token, site, "history", onHistory, openEventSource),
-    watchConnections: (site, onConns) => watchStream(baseUrl, token, site, "connections", onConns, openEventSource),
+    watchPoses: (site, onPose, onLost) =>
+      watchStream(baseUrl, token, site, "poses", onPose, openEventSource, onLost),
+    watchLocks: (site, onLocks, onLost) =>
+      watchStream(baseUrl, token, site, "locks", onLocks, openEventSource, onLost),
+    watchOrders: (site, onOrders, onLost) =>
+      watchStream(baseUrl, token, site, "orders", onOrders, openEventSource, onLost),
+    watchHistory: (site, onHistory, onLost) =>
+      watchStream(baseUrl, token, site, "history", onHistory, openEventSource, onLost),
+    watchConnections: (site, onConns, onLost) =>
+      watchStream(baseUrl, token, site, "connections", onConns, openEventSource, onLost),
     dispatchOrder: async (site, input) => {
       ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).orders.post({
@@ -266,7 +289,8 @@ export function createHttpBackend(
         );
       }
     },
-    watchDemands: (site, onDemands) => watchStream(baseUrl, token, site, "demands", onDemands, openEventSource),
+    watchDemands: (site, onDemands, onLost) =>
+      watchStream(baseUrl, token, site, "demands", onDemands, openEventSource, onLost),
     bumpDemand: async (site, input) => {
       ensureOnline();
       const res = await treatyApi(fetchFn).api.sites({ name: site }).demand.post(input);

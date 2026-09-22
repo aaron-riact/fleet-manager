@@ -64,7 +64,7 @@ function MobileView({
   markers,
   resolveActionLabel = defaultActionLabel,
 }: MobileShellProps) {
-  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, historyReceived, live } =
+  const { site, sites, siteName, setSiteName, error, poses, locks, orders, history, historyReceived, streamLost, live } =
     useFleetSite(backend, initialSite);
   const changeSite = (name: string) => {
     setSiteName(name);
@@ -126,7 +126,10 @@ function MobileView({
               {site.name}
             </span>
           ))}
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: live ? theme.ok : theme.warn }} />
+        <span
+          style={{ width: 8, height: 8, borderRadius: "50%", background: live ? theme.ok : streamLost ? theme.bad : theme.warn }}
+        />
+        {streamLost && <span style={{ color: theme.bad, fontSize: "0.7rem" }}>stream lost — reload</span>}
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={{ color: theme.textDim, fontSize: "0.75rem" }}>{session.username}</span>
           <a
