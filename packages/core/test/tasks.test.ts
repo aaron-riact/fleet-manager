@@ -113,6 +113,23 @@ describe("pumpSiteTasks", () => {
     expect(waypoints[2]!.actions).toMatchObject([{ actionType: "dropTrolley" }]);
   });
 
+  test("a single-node task runs both ends, pickup first", async () => {
+    // Two stations can share an entry node, so a task between them routes
+    // to one node. Its role was only ever "pickup": the drop never rode.
+    const { base, calls, tasks } = setup({
+      poses: new Map([["r1", pose("r1", 0, 0)]]),
+      attachments: (_nodeId, role) => [
+        { actionType: role === "pickup" ? "pickTrolley" : "dropTrolley", blockingType: "HARD" },
+      ],
+    });
+    tasks.set("t1", queued("t1", "a", "a"));
+    pumpSiteTasks(base);
+    await flush();
+    const waypoints = calls[0]!.waypoints as Array<{ nodeId: string; actions?: unknown[] }>;
+    expect(waypoints.map((w) => w.nodeId)).toEqual(["a"]);
+    expect(waypoints[0]!.actions).toMatchObject([{ actionType: "pickTrolley" }, { actionType: "dropTrolley" }]);
+  });
+
   test("no attachments callback means drive-only tours", async () => {
     const { base, calls, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
     tasks.set("t1", queued("t1", "a", "c"));

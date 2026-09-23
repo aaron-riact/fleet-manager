@@ -193,13 +193,15 @@ function assignQueuedTasks({ site, fleet, poses, tasks, demands, poseTtlMs, atta
     // drive-through. A single-node tour is both ends: pickup runs first.
     const waypoints: PumpWaypoint[] = path.map((id, i) => {
       const n = byId.get(id)!;
-      const role = i === 0 ? "pickup" : i === path.length - 1 ? "dropoff" : undefined;
-      const actions = role !== undefined ? attachments?.(id, role) : undefined;
+      const actions = [
+        ...(i === 0 ? (attachments?.(id, "pickup") ?? []) : []),
+        ...(i === path.length - 1 ? (attachments?.(id, "dropoff") ?? []) : []),
+      ];
       return {
         nodeId: id,
         x: n.x,
         y: n.y,
-        ...(actions !== undefined && actions.length > 0 ? { actions } : {}),
+        ...(actions.length > 0 ? { actions } : {}),
       };
     });
     fleet
