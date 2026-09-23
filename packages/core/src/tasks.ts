@@ -1,4 +1,5 @@
 import { shortestPath } from "./plan.js";
+import { findStation, stationNode } from "./stations.js";
 import { isFresh } from "./poses.js";
 import type { NodeActionAttachment } from "./actions.js";
 import type { DemandCounts } from "./demand.js";
@@ -68,6 +69,34 @@ export function checkRoutePair(
   if (!ids.has(pickup) || !ids.has(dropoff))
     return { status: 400, message: "pickup and dropoff must be known nodes" };
   if (!shortestPath(site, pickup, dropoff))
+    return { status: 409, message: `no route from "${pickup}" to "${dropoff}"` };
+  return undefined;
+}
+
+/** Single station reference check (always a 400 when wrong). */
+export function checkStation(
+  site: Pick<Site, "locations">,
+  label: string,
+  id: unknown,
+): RouteIssue | undefined {
+  if (typeof id !== "string" || !id) return { status: 400, message: `${label} required` };
+  if (!findStation(site, id)) return { status: 400, message: `${label} must be a known station` };
+  return undefined;
+}
+
+/** Pickup→dropoff station pair check (400s, then 409 when their nodes are unroutable). */
+export function checkStationPair(
+  site: Site,
+  pickup: unknown,
+  dropoff: unknown,
+): RouteIssue | undefined {
+  if (typeof pickup !== "string" || !pickup) return { status: 400, message: "pickup required" };
+  if (typeof dropoff !== "string" || !dropoff) return { status: 400, message: "dropoff required" };
+  const from = stationNode(site, pickup);
+  const to = stationNode(site, dropoff);
+  if (from === undefined || to === undefined)
+    return { status: 400, message: "pickup and dropoff must be known stations" };
+  if (!shortestPath(site, from, to))
     return { status: 409, message: `no route from "${pickup}" to "${dropoff}"` };
   return undefined;
 }
