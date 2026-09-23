@@ -27,7 +27,7 @@
       "name": "@fleet-manager/core",
       "version": "0.1.0",
       "dependencies": {
-        "graferse": "^0.1.0",
+        "graferse": "^0.2.0",
         "js-srp6a": "^1.0.3",
         "zod": "^4.6.4",
       },
@@ -722,7 +722,7 @@
 
     "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
 
-    "graferse": ["graferse@0.1.0", "", { "dependencies": { "debug": "^4.4.1" } }, "sha512-IX3csFsTEfceIIj3R3fGNoUyMvZBZUcbf1mWX+1d55wrB/6E/b31yWQ0woPqt1i9Wz1IiXr2f+CJWwM9BLfVFg=="],
+    "graferse": ["graferse@0.2.0", "", { "dependencies": { "debug": "^4.4.1" } }, "sha512-lVN5loLFcaKbmps4WebtsQSHNtQ2Wx43uIN8Q7b+e0gJS9kzGUMQYmEeX+qNWe5aedAtJR/PHnynuDsvAYRKzg=="],
 
     "has-bigints": ["has-bigints@1.1.0", "", {}, "sha512-R3pbpkcIqv2Pm3dUwgjclDRVmWpTJW2DcMzcIhEXEx1oh/CEMObMm3KLmRJOdvhM7o4uQBnwr8pzRK2sJWIqfg=="],
 

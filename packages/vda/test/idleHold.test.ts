@@ -36,14 +36,21 @@ function heldMaster() {
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
-const heldBy = (locks: ReturnType<typeof buildLocks>, serial: string) => locks.heldNodes(serial).sort();
+const heldBy = (locks: ReturnType<typeof buildLocks>, serial: string) =>
+  locks
+    .snapshot()
+    .nodeLocks.filter((n) => n.owners.includes(serial))
+    .map((n) => n.id)
+    .sort();
 
 describe("idle holds", () => {
   test("the node a robot idled on is released once its next tour drives off it", async () => {
     // A tour that ends on the graph keeps its last node, so nobody drives
-    // into the idle robot. The next tour only unlocks its own path: when
-    // it did not pass that node, the robot held it for the whole tour, and
-    // on a site without parking the stale holds piled up until deadlock.
+    // into the idle robot. Its next tour must give that node up once it
+    // drives off, even when its path does not pass the node: graferse
+    // 0.2.0 does this (a new path takes over the idle hold). Before, the
+    // robot held it for the whole tour, and on a site without parking the
+    // stale holds piled up until deadlock.
     const locks = buildLocks(site);
     const { master, tours } = heldMaster();
     const fleet = new Fleet(master, locks);

@@ -160,8 +160,6 @@ describe("order history", () => {
         clearAllLocks: () => {},
       }),
       holdNode: () => true,
-      heldNodes: () => [],
-      releaseNode: () => {},
       snapshot: () => ({ nodeLocks: [], edgeLocks: [] }),
     } as unknown as FleetLocks;
   }
@@ -178,8 +176,6 @@ describe("order history", () => {
         clearAllLocks: () => {},
       }),
       holdNode: () => true,
-      heldNodes: () => [],
-      releaseNode: () => {},
       snapshot: () => ({ nodeLocks: [], edgeLocks: [] }),
     } as unknown as FleetLocks;
   }
@@ -323,7 +319,6 @@ describe("parking", () => {
     let clears = 0;
     const locks = {
       lockerFor: () => ({ clearAllLocks: () => void clears++ }),
-      heldNodes: () => [],
       snapshot: () => ({ nodeLocks: [], edgeLocks: [] }),
     } as unknown as FleetLocks;
     return { locks, clears: () => clears };
