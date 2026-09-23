@@ -1,27 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { theme } from "./theme";
-import { nearestNode } from "@fleet-manager/core";
-import type { MapNode, SiteLocation, ZoneDemand } from "@fleet-manager/core";
+import type { SiteLocation, ZoneDemand } from "@fleet-manager/core";
 import { useToast } from "./Toast";
 import type { Backend } from "./backend";
 
 export interface ZoneRow {
   zone: string;
   demand: number;
-  /** Graph node serving the zone's drop pose (routing needs nodes, not poses). */
-  dropNode: string;
+  /** Station a request for this zone drops at. Tasks name stations, never nodes. */
+  dropStation: string;
+  label: string;
 }
 
 /**
- * One row per zone with a drop pose: live demand, +1 tap, request
- * button. Zones list in first-seen location order (authorial, stable).
- * Pure, tested.
+ * One row per zone: its first station with a drop pose, live demand,
+ * +1 tap, request button. Zones list in first-seen location order
+ * (authorial, stable). Pure, tested.
  */
-export function zoneRows(
-  locations: SiteLocation[],
-  nodes: MapNode[],
-  demands: ZoneDemand[],
-): ZoneRow[] {
+export function zoneRows(locations: SiteLocation[], demands: ZoneDemand[]): ZoneRow[] {
   const counts = new Map(demands.map((d) => [d.zone, d.demand]));
   const rows: ZoneRow[] = [];
   const seen = new Set<string>();
@@ -29,12 +25,12 @@ export function zoneRows(
     const zone = location.zone;
     if (!zone || seen.has(zone) || !location.dropPose) continue;
     seen.add(zone);
-    // Authored attachments beat geometry: the map author stated which
-    // graph node serves this station.
-    const dropNode =
-      location.entry ?? nearestNode({ name: "", nodes, links: [] }, location.dropPose.x, location.dropPose.y);
-    if (!dropNode) continue;
-    rows.push({ zone, demand: counts.get(zone) ?? 0, dropNode });
+    rows.push({
+      zone,
+      demand: counts.get(zone) ?? 0,
+      dropStation: location.id,
+      label: location.name ?? location.id,
+    });
   }
   return rows;
 }
@@ -56,12 +52,10 @@ export function DemandBoard({
   siteName,
   backend,
   locations,
-  nodes,
 }: {
   siteName: string;
   backend: Backend;
   locations: SiteLocation[];
-  nodes: MapNode[];
 }) {
   const [demands, setDemands] = useState<ZoneDemand[]>([]);
   const [busy, setBusy] = useState(false);
@@ -69,7 +63,7 @@ export function DemandBoard({
 
   useEffect(() => backend.watchDemands(siteName, setDemands), [backend, siteName]);
 
-  const rows = zoneRows(locations, nodes, demands);
+  const rows = zoneRows(locations, demands);
   if (rows.length === 0) return null;
 
   async function bump(zone: string) {
@@ -83,11 +77,11 @@ export function DemandBoard({
     }
   }
 
-  async function request(zone: string, dropNode: string) {
+  async function request(row: ZoneRow) {
     setBusy(true);
     try {
-      const { taskId } = await backend.submitRequest(siteName, { dropoff: dropNode, zone });
-      toast.show({ kind: "ok", message: `Requested ${zone} → ${dropNode} (${taskId})` });
+      const { taskId } = await backend.submitRequest(siteName, { dropoff: row.dropStation, zone: row.zone });
+      toast.show({ kind: "ok", message: `Requested ${row.zone} → ${row.label} (${taskId})` });
     } catch (e) {
       toast.show({ kind: "bad", message: e instanceof Error ? e.message : "request failed" });
     } finally {
@@ -133,7 +127,7 @@ export function DemandBoard({
               +1
             </button>
             <button
-              onClick={() => void request(row.zone, row.dropNode)}
+              onClick={() => void request(row)}
               disabled={busy}
               style={{
                 minHeight: 44,

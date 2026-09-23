@@ -671,6 +671,11 @@ describe("HTTP API", () => {
           { id: "b", x: 12, y: 0 },
         ],
         links: [{ source: "a", destination: "b", bidirectional: true }],
+        // tasks name stations
+        locations: [
+          { id: "A", entry: "a", pickPose: { x: 0, y: 1 } },
+          { id: "B", entry: "b", pickPose: { x: 12, y: 1 } },
+        ],
       }),
     );
     const { server, port, contexts } = await serve({
@@ -713,7 +718,9 @@ describe("HTTP API", () => {
         ).json()) as { tasks: Array<{ id: string; status: string; assignee?: string; orderId?: string }> };
 
       // validation first: unknown nodes 400, unroutable pair 409
-      expect((await post("/api/sites/coalescent/tasks", { pickup: "ghost", dropoff: "a" }, token)).status).toBe(400);
+      expect((await post("/api/sites/coalescent/tasks", { pickup: "ghost", dropoff: "A" }, token)).status).toBe(400);
+      // node ids are a graph detail: tasks refuse them
+      expect((await post("/api/sites/coalescent/tasks", { pickup: "b", dropoff: "a" }, token)).status).toBe(400);
       expect((await post("/api/sites/coalescent/tasks", {}, token)).status).toBe(400);
 
       const deadline = Date.now() + 10_000;
@@ -721,7 +728,7 @@ describe("HTTP API", () => {
         await new Promise((r) => setTimeout(r, 50));
       }
       const submitted = await (
-        await post("/api/sites/coalescent/tasks", { pickup: "b", dropoff: "a" }, token)
+        await post("/api/sites/coalescent/tasks", { pickup: "B", dropoff: "A" }, token)
       ).json();
       expect(submitted.ok).toBe(true);
 
@@ -762,7 +769,7 @@ describe("HTTP API", () => {
         token,
       );
       const queued = await (
-        await post("/api/sites/coalescent/tasks", { pickup: "a", dropoff: "b" }, token)
+        await post("/api/sites/coalescent/tasks", { pickup: "A", dropoff: "B" }, token)
       ).json();
       const delQueued = await fetch(`${base}/api/sites/coalescent/tasks/${queued.taskId}`, {
         method: "DELETE",
@@ -858,6 +865,11 @@ describe("HTTP API", () => {
           { id: "island", x: 50, y: 50 },
         ],
         links: [{ source: "a", destination: "b", bidirectional: true }],
+        locations: [
+          { id: "A", entry: "a", pickPose: { x: 0, y: 1 } },
+          { id: "B", entry: "b", dropPose: { x: 12, y: 1 } },
+          { id: "ISLAND", entry: "island", pickPose: { x: 50, y: 51 } },
+        ],
       }),
     );
     const { server, port, contexts } = await serve({
@@ -907,13 +919,13 @@ describe("HTTP API", () => {
         (await post("/api/sites/coalescent/tasks/request", { dropoff: "ghost" }, token)).status,
       ).toBe(400);
       expect(
-        (await post("/api/sites/coalescent/tasks/ghost/pickup", { pickup: "a" }, token)).status,
+        (await post("/api/sites/coalescent/tasks/ghost/pickup", { pickup: "A" }, token)).status,
       ).toBe(404);
 
       // one unit of dock demand becomes one request, counter decremented
       await post("/api/sites/coalescent/demand", { zone: "dock", count: 1 }, token);
       const requested = await (
-        await post("/api/sites/coalescent/tasks/request", { dropoff: "b", zone: "dock" }, token)
+        await post("/api/sites/coalescent/tasks/request", { dropoff: "B", zone: "dock" }, token)
       ).json();
       expect(requested.ok).toBe(true);
       expect(ctx.demands).toEqual({ dock: 0 });
@@ -927,9 +939,10 @@ describe("HTTP API", () => {
         post(`/api/sites/coalescent/tasks/${id}/pickup`, body, token);
       expect((await attach(requested.taskId, {})).status).toBe(400);
       expect((await attach(requested.taskId, { pickup: "ghost" })).status).toBe(400);
-      expect((await attach(requested.taskId, { pickup: "island" })).status).toBe(409);
-      expect((await attach(requested.taskId, { pickup: "a" })).status).toBe(200);
-      expect((await attach(requested.taskId, { pickup: "a" })).status).toBe(409);
+      expect((await attach(requested.taskId, { pickup: "a" })).status).toBe(400);
+      expect((await attach(requested.taskId, { pickup: "ISLAND" })).status).toBe(409);
+      expect((await attach(requested.taskId, { pickup: "A" })).status).toBe(200);
+      expect((await attach(requested.taskId, { pickup: "A" })).status).toBe(409);
 
       const doneDeadline = Date.now() + 45_000;
       let done;
@@ -942,13 +955,13 @@ describe("HTTP API", () => {
         }
         await new Promise((r) => setTimeout(r, 200));
       }
-      expect(done).toMatchObject({ assignee: "req-1", pickup: "a" });
+      expect(done).toMatchObject({ assignee: "req-1", pickup: "A" });
       expect(typeof done!.orderId).toBe("string");
 
       // withdrawing a request returns its demand unit
       await post("/api/sites/coalescent/demand", { zone: "dock", count: 1 }, token);
       const requested2 = await (
-        await post("/api/sites/coalescent/tasks/request", { dropoff: "b", zone: "dock" }, token)
+        await post("/api/sites/coalescent/tasks/request", { dropoff: "B", zone: "dock" }, token)
       ).json();
       expect(ctx.demands).toEqual({ dock: 0 });
       const del = await fetch(`${base}/api/sites/coalescent/tasks/${requested2.taskId}`, {
@@ -965,7 +978,7 @@ describe("HTTP API", () => {
       await post("/api/sites/coalescent/demand", { zone: "dock", count: 0 }, token);
       expect(ctx.demands).toEqual({ dock: 0 });
       const requested3 = await (
-        await post("/api/sites/coalescent/tasks/request", { dropoff: "b", zone: "dock" }, token)
+        await post("/api/sites/coalescent/tasks/request", { dropoff: "B", zone: "dock" }, token)
       ).json();
       expect(ctx.demands).toEqual({ dock: 0 });
       const del3 = await fetch(`${base}/api/sites/coalescent/tasks/${requested3.taskId}`, {
@@ -1184,6 +1197,10 @@ describe("HTTP API", () => {
           { id: "b", x: 12, y: 0 },
         ],
         links: [{ source: "a", destination: "b", bidirectional: true }],
+        locations: [
+          { id: "A", entry: "a", pickPose: { x: 0, y: 1 } },
+          { id: "B", entry: "b", dropPose: { x: 12, y: 1 } },
+        ],
       }),
     );
     const { stop, port, contexts } = await serve({ port: 0, usersFile: file, sitesDir, srp: testSrp });
@@ -1202,7 +1219,7 @@ describe("HTTP API", () => {
     try {
       const token = await testLogin(post, "http@cmr", "s3cret");
       // queue the work while the site has no robot at all
-      expect((await post("/api/sites/coalescent/tasks", { pickup: "a", dropoff: "b" }, token)).status).toBe(200);
+      expect((await post("/api/sites/coalescent/tasks", { pickup: "A", dropoff: "B" }, token)).status).toBe(200);
       expect([...ctx.tasks.values()][0]).toMatchObject({ status: "queued" });
 
       // now one turns up — nothing else happens, no order ends

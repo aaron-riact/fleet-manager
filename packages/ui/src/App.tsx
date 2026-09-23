@@ -371,10 +371,9 @@ function ShellView({
                   siteName={site.name}
                   backend={backend}
                   locations={site.locations ?? []}
-                  nodes={site.nodes}
                 />
               )}
-              <TaskBoard siteName={site.name} backend={backend} nodes={site.nodes} />
+              <TaskBoard siteName={site.name} backend={backend} stations={site.locations ?? []} />
             </div>
           </div>
         )}

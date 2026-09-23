@@ -4,8 +4,8 @@ import type { ActiveOrder, OrderHistory, RobotConnection, RobotPose, SiteFleet }
 import {
   DEFAULT_POSE_TTL_MS,
   addDemand,
-  checkNode,
-  checkRoutePair,
+  checkStation,
+  checkStationPair,
   consumeDemand,
   demandList,
   freeSpot,
@@ -698,7 +698,8 @@ export function buildApp(
       };
     })
     .post("/api/sites/:name/tasks", async ({ headers, params, body }) => {
-      // Queue a pickup→dropoff job. The pump assigns the nearest free
+      // Queue a pickup→dropoff job between two stations (node ids are
+      // refused). The pump assigns the nearest free
       // robot; progress rides the orders/history streams, completion
       // lands here via GET /tasks.
       const me = await auth.me(bearerFromHeaders(headers));
@@ -707,9 +708,9 @@ export function buildApp(
       if (!me.sites.includes(ctx.site.name))
         throw Object.assign(new Error("forbidden site"), { status: 403 });
       const input = (body ?? {}) as { pickup?: unknown; dropoff?: unknown };
-      const issue = checkRoutePair(ctx.site, input.pickup, input.dropoff);
+      const issue = checkStationPair(ctx.site, input.pickup, input.dropoff);
       if (issue) throw Object.assign(new Error(issue.message), { status: issue.status });
-      // checkRoutePair proved both ends; the cast only tells TS what it proved.
+      // checkStationPair proved both ends; the cast only tells TS what it proved.
       const pickup = input.pickup as string;
       const dropoff = input.dropoff as string;
       const id = nextTaskId();
@@ -734,7 +735,7 @@ export function buildApp(
       if (!me.sites.includes(ctx.site.name))
         throw Object.assign(new Error("forbidden site"), { status: 403 });
       const input = (body ?? {}) as { dropoff?: unknown; zone?: unknown };
-      const dropoffIssue = checkNode(ctx.site, "dropoff", input.dropoff);
+      const dropoffIssue = checkStation(ctx.site, "dropoff", input.dropoff);
       if (dropoffIssue) throw Object.assign(new Error(dropoffIssue.message), { status: dropoffIssue.status });
       if (input.zone !== undefined && (typeof input.zone !== "string" || !input.zone)) {
         throw Object.assign(new Error("zone must be a non-empty string"), { status: 400 });
@@ -750,7 +751,7 @@ export function buildApp(
       const id = nextTaskId();
       ctx.tasks.set(id, {
         id,
-        // checkNode proved the dropoff above; the cast tells TS what it proved.
+        // checkStation proved the dropoff above; the cast tells TS what it proved.
         dropoff: input.dropoff as string,
         ...(input.zone === undefined ? {} : { zone: input.zone, holdsDemand }),
         status: "requested",
@@ -772,11 +773,11 @@ export function buildApp(
         throw Object.assign(new Error("only requested tasks take a pickup"), { status: 409 });
       }
       const input = (body ?? {}) as { pickup?: unknown };
-      const pickupIssue = checkNode(ctx.site, "pickup", input.pickup);
+      const pickupIssue = checkStation(ctx.site, "pickup", input.pickup);
       if (pickupIssue) throw Object.assign(new Error(pickupIssue.message), { status: pickupIssue.status });
-      // checkNode proved the pickup; the cast tells TS what it proved.
+      // checkStation proved the pickup; the cast tells TS what it proved.
       const pickup = input.pickup as string;
-      const routeIssue = checkRoutePair(ctx.site, pickup, task.dropoff);
+      const routeIssue = checkStationPair(ctx.site, pickup, task.dropoff);
       if (routeIssue) throw Object.assign(new Error(routeIssue.message), { status: routeIssue.status });
       task.pickup = pickup;
       task.status = "queued";

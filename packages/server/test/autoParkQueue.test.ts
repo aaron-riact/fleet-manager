@@ -38,6 +38,11 @@ describe("auto-park and the task queue", () => {
           { source: "b", destination: "c", bidirectional: true },
         ],
         parking: [{ id: "p1", x: 0, y: 6, entry: "a" }],
+        locations: [
+          { id: "A", entry: "a", pickPose: { x: 0, y: -1 } },
+          { id: "B", entry: "b", pickPose: { x: 10, y: -1 } },
+          { id: "C", entry: "c", pickPose: { x: 20, y: -1 } },
+        ],
       }),
     );
     const { server, port, contexts } = await serve({
@@ -88,12 +93,12 @@ describe("auto-park and the task queue", () => {
       const token = await testLogin(post, "pump@cmr", "s3cret");
       await pollFor("robot pose", () => ctx.poses.has("pump-1"), 15_000);
 
-      const first = await post("/api/sites/coalescent/tasks", { pickup: "a", dropoff: "b" }, token);
+      const first = await post("/api/sites/coalescent/tasks", { pickup: "A", dropoff: "B" }, token);
       expect(first.status).toBe(200);
       await pollFor("first task assigned", () => ctx.fleet.isBusy("pump-1"), 15_000);
 
       // Queued while the robot is busy: it can only move once that tour ends.
-      const second = await post("/api/sites/coalescent/tasks", { pickup: "b", dropoff: "c" }, token);
+      const second = await post("/api/sites/coalescent/tasks", { pickup: "B", dropoff: "C" }, token);
       const secondId = ((await second.json()) as { taskId: string }).taskId;
       expect(ctx.tasks.get(secondId)?.status).toBe("queued");
 

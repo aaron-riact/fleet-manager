@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { bootFleet } from "./fleet";
 import { loopFrom } from "./scenario";
 import { watchConnections, watchRobots } from "@fleet-manager/vda";
-import { addDemand, checkNode, checkRoutePair, consumeDemand, demandList, freeSpot, nextTaskId, occupiedSpots, parkRoute, pumpSiteTasks } from "@fleet-manager/core";
+import { addDemand, checkStation, checkStationPair, consumeDemand, demandList, freeSpot, nextTaskId, occupiedSpots, parkRoute, pumpSiteTasks } from "@fleet-manager/core";
 import { diffLocks, formatLockEvent } from "./lockEvents";
 import type { DemoFleet } from "./fleet";
 import type { RobotConnection, RobotPose } from "@fleet-manager/vda";
@@ -15,7 +15,7 @@ import { defaultActionLabel } from "@fleet-manager/ui";
 import type { MapMarker } from "@fleet-manager/ui";
 import { selectAutoParkTarget } from "./autoPark";
 import { TrolleyAdapter } from "./trolley/adapter";
-import { dropAttachments, pickAttachments, stationDock, stationEntry, stationsAtNode } from "./trolley/attachments";
+import { dropAttachments, pickAttachments, stationDock, stationEntry } from "./trolley/attachments";
 import { DEFAULT_TROLLEY_SEED, TrolleyWorld } from "./trolley/world";
 import { SITES, selectInitialSite } from "./sites";
 import { buildLocks } from "@fleet-manager/core";
@@ -105,12 +105,9 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
       tasks: tasksRef.current,
       demands: demandsRef.current,
       poseTtlMs: POSE_TTL_MS,
-      // Trolley work rides the tour ends; plain graph nodes stay drive-only.
-      // Tasks name nodes, so every station on the node gets work here.
-      attachments: (nodeId, role) =>
-        stationsAtNode(site as Site, nodeId).flatMap((station) =>
-          role === "pickup" ? pickAttachments(site as Site, station) : dropAttachments(site as Site, station),
-        ),
+      // Trolley work for the task's own stations rides the tour ends.
+      attachments: (station, role) =>
+        role === "pickup" ? pickAttachments(site as Site, station) : dropAttachments(site as Site, station),
     });
   }
   const [backend] = useState<MemoryBackend>(() =>
@@ -197,7 +194,7 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         const svc = svcRef.current;
         if (!svc) throw new Error("fleet not booted yet");
         const demoSite = site as Site;
-        const issue = checkRoutePair(demoSite, input.pickup, input.dropoff);
+        const issue = checkStationPair(demoSite, input.pickup, input.dropoff);
         if (issue) throw new Error(issue.message);
         const id = nextTaskId();
         tasksRef.current.set(id, {
@@ -231,7 +228,7 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         const svc = svcRef.current;
         if (!svc) throw new Error("fleet not booted yet");
         const demoSite = site as Site;
-        const dropoffIssue = checkNode(demoSite, "dropoff", input.dropoff);
+        const dropoffIssue = checkStation(demoSite, "dropoff", input.dropoff);
         if (dropoffIssue) throw new Error(dropoffIssue.message);
         if (input.zone !== undefined && !input.zone) {
           throw new Error("zone must be a non-empty string");
@@ -260,9 +257,9 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
         if (!task) throw new Error("unknown task");
         if (task.status !== "requested") throw new Error("only requested tasks take a pickup");
         const demoSite = site as Site;
-        const pickupIssue = checkNode(demoSite, "pickup", input.pickup);
+        const pickupIssue = checkStation(demoSite, "pickup", input.pickup);
         if (pickupIssue) throw new Error(pickupIssue.message);
-        const routeIssue = checkRoutePair(demoSite, input.pickup, task.dropoff);
+        const routeIssue = checkStationPair(demoSite, input.pickup, task.dropoff);
         if (routeIssue) throw new Error(routeIssue.message);
         task.pickup = input.pickup;
         task.status = "queued";

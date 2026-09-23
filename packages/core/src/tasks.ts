@@ -6,14 +6,17 @@ import type { DemandCounts } from "./demand.js";
 import type { Site } from "./site.js";
 
 /**
- * A pickup→dropoff job. `requested` is demand not yet dispatchable: the
- * dropoff is known but nobody has attached a pickup, so the pump skips
- * it until it becomes `queued`. Only queued tasks ever reach a robot.
+ * A pickup→dropoff job between two stations. `requested` is demand not
+ * yet dispatchable: the dropoff is known but nobody has attached a
+ * pickup, so the pump skips it until it becomes `queued`. Only queued
+ * tasks ever reach a robot. Stations turn into graph nodes only when the
+ * pump builds the tour.
  */
 export interface TaskView {
   id: string;
-  /** Absent while requested — attached later via the pickup endpoint. */
+  /** Station id. Absent while requested — attached later via the pickup endpoint. */
   pickup?: string;
+  /** Station id. */
   dropoff: string;
   status: "requested" | "queued" | "assigned" | "done" | "failed";
   /** Demand zone this task was requested for, if any (pump weighting). */
@@ -43,34 +46,6 @@ export const MAX_RETAINED_TASKS = 200;
 export interface RouteIssue {
   status: 400 | 409;
   message: string;
-}
-
-/** Single node reference check (always a 400 when wrong). */
-export function checkNode(
-  site: Pick<Site, "nodes">,
-  label: string,
-  id: unknown,
-): RouteIssue | undefined {
-  if (typeof id !== "string" || !id) return { status: 400, message: `${label} required` };
-  if (!site.nodes.some((n) => n.id === id))
-    return { status: 400, message: `${label} must be a known node` };
-  return undefined;
-}
-
-/** Pickup→dropoff pair check for dispatch (400s, then 409 when unroutable). */
-export function checkRoutePair(
-  site: Site,
-  pickup: unknown,
-  dropoff: unknown,
-): RouteIssue | undefined {
-  if (typeof pickup !== "string" || !pickup) return { status: 400, message: "pickup required" };
-  if (typeof dropoff !== "string" || !dropoff) return { status: 400, message: "dropoff required" };
-  const ids = new Set(site.nodes.map((n) => n.id));
-  if (!ids.has(pickup) || !ids.has(dropoff))
-    return { status: 400, message: "pickup and dropoff must be known nodes" };
-  if (!shortestPath(site, pickup, dropoff))
-    return { status: 409, message: `no route from "${pickup}" to "${dropoff}"` };
-  return undefined;
 }
 
 /** Single station reference check (always a 400 when wrong). */
@@ -140,12 +115,13 @@ export interface TaskPump {
   demands: DemandCounts;
   poseTtlMs: number;
   /**
-   * Domain work to attach at the tour ends ("pickup" = first waypoint,
-   * "dropoff" = last). Absent means drive-only tours. The pump never
-   * interprets the returned attachments — they ride the order nodes to
-   * whichever adapter executes them.
+   * Domain work for the task's stations, riding the tour ends ("pickup" on
+   * the first waypoint, "dropoff" on the last). Asked for by station, not
+   * node: two stations can share an entry node. Absent means drive-only
+   * tours. The pump never interprets the returned attachments — they ride
+   * the order nodes to whichever adapter executes them.
    */
-  attachments?: (nodeId: string, role: "pickup" | "dropoff") => NodeActionAttachment[];
+  attachments?: (stationId: string, role: "pickup" | "dropoff") => NodeActionAttachment[];
 }
 
 /**
@@ -188,20 +164,22 @@ function assignQueuedTasks({ site, fleet, poses, tasks, demands, poseTtlMs, atta
     // missing pickup here means corrupt state, not a slow dispatcher.
     if (task.pickup === undefined) {
       task.status = "failed";
-      task.reason = `unknown pickup or dropoff node`;
+      task.reason = `unknown pickup or dropoff station`;
       continue;
     }
-    const pickup = byId.get(task.pickup);
-    const drop = byId.get(task.dropoff);
-    if (!pickup || !drop) {
+    const pickupStation = task.pickup;
+    const pickupNode = stationNode(site, pickupStation);
+    const dropNode = stationNode(site, task.dropoff);
+    const pickup = pickupNode === undefined ? undefined : byId.get(pickupNode);
+    if (!pickup || dropNode === undefined || !byId.has(dropNode)) {
       task.status = "failed";
-      task.reason = `unknown pickup or dropoff node`;
+      task.reason = `unknown pickup or dropoff station`;
       continue;
     }
     // Route before robots: an undispatchable task fails whether or not
     // anyone is free to drive it. (Robot search first would park it in
     // queued forever whenever the fleet happened to be busy.)
-    const path = shortestPath(site, task.pickup, task.dropoff);
+    const path = shortestPath(site, pickup.id, dropNode);
     if (!path) {
       task.status = "failed";
       task.reason = `no route from "${task.pickup}" to "${task.dropoff}"`;
@@ -223,8 +201,8 @@ function assignQueuedTasks({ site, fleet, poses, tasks, demands, poseTtlMs, atta
     const waypoints: PumpWaypoint[] = path.map((id, i) => {
       const n = byId.get(id)!;
       const actions = [
-        ...(i === 0 ? (attachments?.(id, "pickup") ?? []) : []),
-        ...(i === path.length - 1 ? (attachments?.(id, "dropoff") ?? []) : []),
+        ...(i === 0 ? (attachments?.(pickupStation, "pickup") ?? []) : []),
+        ...(i === path.length - 1 ? (attachments?.(task.dropoff, "dropoff") ?? []) : []),
       ];
       return {
         nodeId: id,

@@ -3,7 +3,7 @@ import { theme } from "./theme";
 import { useToast } from "./Toast";
 import { touchStyle, useNarrow } from "./responsive";
 import type { Backend } from "./backend";
-import type { MapNode, TaskView } from "@fleet-manager/core";
+import type { SiteLocation, TaskView } from "@fleet-manager/core";
 
 function taskColor(status: TaskView["status"]): string {
   switch (status) {
@@ -28,6 +28,24 @@ const cardStyle: React.CSSProperties = {
   backdropFilter: "blur(8px)",
 };
 
+export interface StationOption {
+  id: string;
+  label: string;
+}
+
+/**
+ * The stations a task may pick from and drop at. Tasks name stations,
+ * never nodes, and a station without the matching pose has no work to do
+ * in that role, so it is left out. Pure, tested.
+ */
+export function taskStations(stations: SiteLocation[]): { pickups: StationOption[]; dropoffs: StationOption[] } {
+  const option = (s: SiteLocation): StationOption => ({ id: s.id, label: s.name ?? s.id });
+  return {
+    pickups: stations.filter((s) => s.pickPose !== undefined).map(option),
+    dropoffs: stations.filter((s) => s.dropPose !== undefined).map(option),
+  };
+}
+
 const select: React.CSSProperties = {
   flex: "1 1 0",
   minWidth: 0,
@@ -41,26 +59,26 @@ const select: React.CSSProperties = {
 
 /** Pickup select plus attach button for a requested task. */
 function AttachPickup({
-  nodes,
+  pickups,
   busy,
   onAttach,
 }: {
-  nodes: MapNode[];
+  pickups: StationOption[];
   busy: boolean;
   onAttach: (pickup: string) => void;
 }) {
-  const [pickup, setPickup] = useState(nodes[0]?.id ?? "");
+  const [pickup, setPickup] = useState(pickups[0]?.id ?? "");
   return (
     <span style={{ display: "inline-flex", gap: "0.3rem", alignItems: "center", marginLeft: "auto" }}>
       <select
-        aria-label="Pickup node"
+        aria-label="Pickup station"
         value={pickup}
         onChange={(e) => setPickup(e.target.value)}
         style={{ padding: "0.3rem 0.4rem", borderRadius: 8, border: `1px solid ${theme.border}`, background: theme.bg, color: "inherit", fontSize: "0.75rem" }}
       >
-        {nodes.map((n) => (
-          <option key={n.id} value={n.id}>
-            {n.id}
+        {pickups.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
           </option>
         ))}
       </select>
@@ -75,19 +93,21 @@ function AttachPickup({
   );
 }
 
-/** Pickup→dropoff jobs: submit against graph nodes, watch the queue. */
+/** Pickup→dropoff jobs between stations: submit, watch the queue. */
 export function TaskBoard({
   siteName,
   backend,
-  nodes,
+  stations,
 }: {
   siteName: string;
   backend: Backend;
-  nodes: MapNode[];
+  stations: SiteLocation[];
 }) {
+  const { pickups, dropoffs } = taskStations(stations);
+  const labelOf = (id: string) => stations.find((s) => s.id === id)?.name ?? id;
   const [tasks, setTasks] = useState<TaskView[]>([]);
-  const [pickup, setPickup] = useState(nodes[0]?.id ?? "");
-  const [dropoff, setDropoff] = useState(nodes[1]?.id ?? nodes[0]?.id ?? "");
+  const [pickup, setPickup] = useState(pickups[0]?.id ?? "");
+  const [dropoff, setDropoff] = useState(dropoffs[1]?.id ?? dropoffs[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
   const narrow = useNarrow();
@@ -112,7 +132,7 @@ export function TaskBoard({
     setBusy(true);
     try {
       const { taskId } = await backend.submitTask(siteName, { pickup, dropoff });
-      toast.show({ kind: "ok", message: `Task ${taskId} queued (${pickup} → ${dropoff})` });
+      toast.show({ kind: "ok", message: `Task ${taskId} queued (${labelOf(pickup)} → ${labelOf(dropoff)})` });
       await refresh();
     } catch (e) {
       toast.show({ kind: "bad", message: e instanceof Error ? e.message : "submit failed" });
@@ -135,7 +155,7 @@ export function TaskBoard({
     setBusy(true);
     try {
       await backend.attachPickup(siteName, taskId, { pickup });
-      toast.show({ kind: "ok", message: `Task ${taskId} queued from ${pickup}` });
+      toast.show({ kind: "ok", message: `Task ${taskId} queued from ${labelOf(pickup)}` });
       await refresh();
     } catch (e) {
       toast.show({ kind: "bad", message: e instanceof Error ? e.message : "attach failed" });
@@ -151,18 +171,18 @@ export function TaskBoard({
       </h2>
       <form style={cardStyle} onSubmit={submit}>
         <div style={{ display: "flex", gap: "0.4rem" }}>
-          <select aria-label="Pickup node" style={select} value={pickup} onChange={(e) => setPickup(e.target.value)}>
-            {nodes.map((n) => (
-              <option key={n.id} value={n.id}>
-                {n.id}
+          <select aria-label="Pickup station" style={select} value={pickup} onChange={(e) => setPickup(e.target.value)}>
+            {pickups.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
               </option>
             ))}
           </select>
           <span style={{ color: theme.textFaint, alignSelf: "center" }}>→</span>
-          <select aria-label="Dropoff node" style={select} value={dropoff} onChange={(e) => setDropoff(e.target.value)}>
-            {nodes.map((n) => (
-              <option key={n.id} value={n.id}>
-                {n.id}
+          <select aria-label="Dropoff station" style={select} value={dropoff} onChange={(e) => setDropoff(e.target.value)}>
+            {dropoffs.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
               </option>
             ))}
           </select>
@@ -191,14 +211,14 @@ export function TaskBoard({
             <div key={t.id} style={{ ...cardStyle, display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", flexWrap: "wrap" }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: taskColor(t.status), flexShrink: 0 }} />
               <span style={{ fontFamily: theme.mono }}>
-                {t.pickup ?? "?"} → {t.dropoff}
+                {t.pickup === undefined ? "?" : labelOf(t.pickup)} → {labelOf(t.dropoff)}
               </span>
               <span style={{ color: theme.textDim }}>{t.status}</span>
               {t.assignee && <span style={{ color: theme.textFaint, fontSize: "0.72rem" }}>{t.assignee}</span>}
               {t.reason && <span style={{ color: theme.bad, fontSize: "0.72rem" }}>{t.reason}</span>}
               {t.status === "requested" && (
                 <AttachPickup
-                  nodes={nodes}
+                  pickups={pickups}
                   busy={busy}
                   onAttach={(pickup) => void attach(t.id, pickup)}
                 />

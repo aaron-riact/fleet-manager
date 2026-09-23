@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MAX_RETAINED_TASKS, checkNode, checkRoutePair, pumpSiteTasks } from "../src/tasks.js";
+import { MAX_RETAINED_TASKS, pumpSiteTasks } from "../src/tasks.js";
 import type { TaskPump, TaskView } from "../src/tasks.js";
 import type { Site } from "../src/site.js";
 
@@ -13,6 +13,12 @@ const site: Site = {
   links: [
     { source: "a", destination: "b", bidirectional: true },
     { source: "b", destination: "c", bidirectional: true },
+  ],
+  // Tasks name stations. Each hangs off the node of the same letter.
+  locations: [
+    { id: "A", entry: "a", pickPose: { x: 0, y: 1 }, dropPose: { x: 0, y: -1 } },
+    { id: "B", entry: "b", pickPose: { x: 10, y: 1 }, dropPose: { x: 10, y: -1 } },
+    { id: "C", entry: "c", pickPose: { x: 10, y: 11 }, dropPose: { x: 10, y: 9 } },
   ],
 };
 
@@ -54,7 +60,7 @@ function setup(over: Partial<TaskPump> = {}) {
   return { base, calls, busy, tasks, setFail: (e: unknown) => (failWith = e) };
 }
 
-const queued = (id: string, pickup = "a", dropoff = "c"): TaskView => ({
+const queued = (id: string, pickup = "A", dropoff = "C"): TaskView => ({
   id,
   pickup,
   dropoff,
@@ -62,49 +68,25 @@ const queued = (id: string, pickup = "a", dropoff = "c"): TaskView => ({
   createdAt: 1_000,
 });
 
-describe("task input checks", () => {
-  const island = { ...site, nodes: [...site.nodes, { id: "island", x: 99, y: 99 }] };
-
-  test("checkNode names the missing or unknown end", () => {
-    expect(checkNode(site, "pickup", "a")).toBeUndefined();
-    expect(checkNode(site, "pickup", undefined)).toEqual({ status: 400, message: "pickup required" });
-    expect(checkNode(site, "pickup", "")).toEqual({ status: 400, message: "pickup required" });
-    expect(checkNode(site, "dropoff", "ghost")).toEqual({ status: 400, message: "dropoff must be a known node" });
-  });
-
-  test("checkRoutePair orders missing, unknown, then unroutable", () => {
-    expect(checkRoutePair(site, "a", "c")).toBeUndefined();
-    expect(checkRoutePair(site, undefined, "c")).toEqual({ status: 400, message: "pickup required" });
-    expect(checkRoutePair(site, "a", undefined)).toEqual({ status: 400, message: "dropoff required" });
-    expect(checkRoutePair(site, "a", "ghost")).toEqual({
-      status: 400,
-      message: "pickup and dropoff must be known nodes",
-    });
-    expect(checkRoutePair(island, "a", "island")).toEqual({
-      status: 409,
-      message: 'no route from "a" to "island"',
-    });
-  });
-});
-
 describe("pumpSiteTasks", () => {
   test("attachments ride the tour ends, middle nodes stay drive-through", async () => {
     const seen: Array<[string, string]> = [];
     const { base, calls, tasks } = setup({
       poses: new Map([["r1", pose("r1", 0, 0)]]),
-      attachments: (nodeId, role) => {
-        seen.push([nodeId, role]);
+      attachments: (stationId, role) => {
+        seen.push([stationId, role]);
         return role === "pickup"
           ? [{ actionType: "pickTrolley", blockingType: "HARD" }]
           : [{ actionType: "dropTrolley", blockingType: "HARD" }];
       },
     });
-    tasks.set("t1", queued("t1", "a", "c"));
+    tasks.set("t1", queued("t1", "A", "C"));
     pumpSiteTasks(base);
     await flush();
+    // work is asked for by station; the waypoints are still nodes
     expect(seen).toEqual([
-      ["a", "pickup"],
-      ["c", "dropoff"],
+      ["A", "pickup"],
+      ["C", "dropoff"],
     ]);
     const waypoints = calls[0]!.waypoints as Array<{ nodeId: string; actions?: unknown[] }>;
     expect(waypoints.map((w) => w.nodeId)).toEqual(["a", "b", "c"]);
@@ -118,11 +100,11 @@ describe("pumpSiteTasks", () => {
     // to one node. Its role was only ever "pickup": the drop never rode.
     const { base, calls, tasks } = setup({
       poses: new Map([["r1", pose("r1", 0, 0)]]),
-      attachments: (_nodeId, role) => [
+      attachments: (_stationId, role) => [
         { actionType: role === "pickup" ? "pickTrolley" : "dropTrolley", blockingType: "HARD" },
       ],
     });
-    tasks.set("t1", queued("t1", "a", "a"));
+    tasks.set("t1", queued("t1", "A", "A"));
     pumpSiteTasks(base);
     await flush();
     const waypoints = calls[0]!.waypoints as Array<{ nodeId: string; actions?: unknown[] }>;
@@ -132,7 +114,7 @@ describe("pumpSiteTasks", () => {
 
   test("no attachments callback means drive-only tours", async () => {
     const { base, calls, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
-    tasks.set("t1", queued("t1", "a", "c"));
+    tasks.set("t1", queued("t1", "A", "C"));
     pumpSiteTasks(base);
     await flush();
     for (const w of calls[0]!.waypoints) expect(w).not.toHaveProperty("actions");
@@ -145,7 +127,7 @@ describe("pumpSiteTasks", () => {
         ["near", pose("near", 9, 0)],
       ]),
     });
-    tasks.set("t1", queued("t1", "c", "a"));
+    tasks.set("t1", queued("t1", "C", "A"));
     pumpSiteTasks(base);
     const task = tasks.get("t1")!;
     expect(task.status).toBe("assigned");
@@ -182,22 +164,27 @@ describe("pumpSiteTasks", () => {
     expect(tasks.get("t1")).toMatchObject({ status: "failed", reason: "boom", assignee: "r1" });
   });
 
-  test("unknown nodes and missing routes fail fast", () => {
+  test("unknown stations and missing routes fail fast", () => {
     const { base, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
-    tasks.set("t1", queued("t1", "ghost", "c"));
-    tasks.set("t2", { ...queued("t2", "a", "c"), pickup: "a", dropoff: "c" });
-    // island is a known node with no links: routed, not found
-    const island = { ...site, nodes: [...site.nodes, { id: "island", x: 99, y: 99 }] };
-    tasks.set("t3", queued("t3", "a", "island"));
+    // a node id is not a station
+    tasks.set("t1", queued("t1", "a", "C"));
+    tasks.set("t2", queued("t2", "A", "C"));
+    // ISLAND hangs off a known node with no links: routed, not found
+    const island = {
+      ...site,
+      nodes: [...site.nodes, { id: "island", x: 99, y: 99 }],
+      locations: [...site.locations!, { id: "ISLAND", entry: "island", pickPose: { x: 99, y: 98 } }],
+    };
+    tasks.set("t3", queued("t3", "A", "ISLAND"));
     pumpSiteTasks({ ...base, site: island });
-    expect(tasks.get("t1")!.status).toBe("failed");
+    expect(tasks.get("t1")).toMatchObject({ status: "failed", reason: "unknown pickup or dropoff station" });
     expect(tasks.get("t2")!.status).toBe("assigned");
     expect(tasks.get("t3")).toMatchObject({ status: "failed", reason: expect.stringMatching(/no route/) });
   });
 
   test("requested tasks wait for a pickup and survive pruning", () => {
     const { base, calls, tasks } = setup({ poses: new Map([["r1", pose("r1", 0, 0)]]) });
-    tasks.set("req", { id: "req", dropoff: "c", zone: "dock", status: "requested", createdAt: 1 });
+    tasks.set("req", { id: "req", dropoff: "C", zone: "dock", status: "requested", createdAt: 1 });
     for (let i = 0; i < MAX_RETAINED_TASKS + 5; i++) {
       tasks.set(`done-${i}`, { ...queued(`done-${i}`), status: "done", createdAt: i });
     }
@@ -270,7 +257,7 @@ describe("pumpSiteTasks", () => {
       },
     };
     for (const id of ["t1", "t2", "t3", "t4"]) {
-      tasks.set(id, { id, pickup: "a", dropoff: "c", status: "queued", createdAt: Date.now() });
+      tasks.set(id, { id, pickup: "A", dropoff: "C", status: "queued", createdAt: Date.now() });
     }
 
     pumpSiteTasks(pump);

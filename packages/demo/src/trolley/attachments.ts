@@ -89,11 +89,6 @@ export function stationEntry(site: Site, stationId: string): string | undefined 
   return (site.locations ?? []).find((l) => l.id === stationId)?.entry;
 }
 
-/** Ids of the stations whose entry is this node. */
-export function stationsAtNode(site: Site, nodeId: string): string[] {
-  return (site.locations ?? []).filter((l) => l.entry === nodeId).map((l) => l.id);
-}
-
 /** The station's entry node, when it is posed for the role. */
 function workAt(site: Site, stationId: string, role: "pickup" | "dropoff") {
   const stance = stanceFor(site, stationId, role);
