@@ -15,7 +15,7 @@ import { defaultActionLabel } from "@fleet-manager/ui";
 import type { MapMarker } from "@fleet-manager/ui";
 import { selectAutoParkTarget } from "./autoPark";
 import { TrolleyAdapter } from "./trolley/adapter";
-import { dropAttachments, pickAttachments, stationDock, stationEntry } from "./trolley/attachments";
+import { dropAttachments, pickAttachments, stationDock, stationEntry, stationsAtNode } from "./trolley/attachments";
 import { DEFAULT_TROLLEY_SEED, TrolleyWorld } from "./trolley/world";
 import { SITES, selectInitialSite } from "./sites";
 import { buildLocks } from "@fleet-manager/core";
@@ -106,8 +106,11 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
       demands: demandsRef.current,
       poseTtlMs: POSE_TTL_MS,
       // Trolley work rides the tour ends; plain graph nodes stay drive-only.
+      // Tasks name nodes, so every station on the node gets work here.
       attachments: (nodeId, role) =>
-        role === "pickup" ? pickAttachments(site as Site, nodeId) : dropAttachments(site as Site, nodeId),
+        stationsAtNode(site as Site, nodeId).flatMap((station) =>
+          role === "pickup" ? pickAttachments(site as Site, station) : dropAttachments(site as Site, station),
+        ),
     });
   }
   const [backend] = useState<MemoryBackend>(() =>
@@ -148,8 +151,8 @@ function DirectorWorld({ siteName, onNavigate }: { siteName: string; onNavigate:
           robot.id,
           input.waypoints.map((w, i) => {
             const actions = [
-              ...(i === pickAt ? pickAttachments(demoSite, w.nodeId) : []),
-              ...(i === dropAt ? dropAttachments(demoSite, w.nodeId) : []),
+              ...(i === pickAt && input.pickupStationId ? pickAttachments(demoSite, input.pickupStationId) : []),
+              ...(i === dropAt && input.dropStationId ? dropAttachments(demoSite, input.dropStationId) : []),
             ];
             return actions.length > 0
               ? { nodeId: w.nodeId, x: w.x, y: w.y, actions }

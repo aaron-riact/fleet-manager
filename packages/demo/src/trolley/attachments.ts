@@ -89,23 +89,31 @@ export function stationEntry(site: Site, stationId: string): string | undefined 
   return (site.locations ?? []).find((l) => l.id === stationId)?.entry;
 }
 
-/** Stations whose entry is this node and that are posed for the role. */
-function stationsAt(site: Site, nodeId: string, role: "pickup" | "dropoff"): Stance[] {
-  const out: Stance[] = [];
-  for (const loc of site.locations ?? []) {
-    if (loc.entry !== nodeId) continue;
-    const stance = stanceFor(site, loc.id, role);
-    if (stance) out.push(stance);
-  }
-  return out;
+/** Ids of the stations whose entry is this node. */
+export function stationsAtNode(site: Site, nodeId: string): string[] {
+  return (site.locations ?? []).filter((l) => l.entry === nodeId).map((l) => l.id);
+}
+
+/** The station's entry node, when it is posed for the role. */
+function workAt(site: Site, stationId: string, role: "pickup" | "dropoff") {
+  const stance = stanceFor(site, stationId, role);
+  const entry = stationEntry(site, stationId);
+  const node = entry === undefined ? undefined : site.nodes.find((n) => n.id === entry);
+  return stance && node ? { stance, node } : undefined;
 }
 
 const FULL_TURN_S = Math.PI / TROLLEY_TURN_RPS;
 
-export function pickAttachments(site: Site, nodeId: string): NodeActionAttachment[] {
-  const node = site.nodes.find((n) => n.id === nodeId);
-  if (!node) return [];
-  return stationsAt(site, nodeId, "pickup")
+/**
+ * Pick work for one station, to ride its entry node. Built per station,
+ * not per node: two stations can share an entry, and work for both would
+ * run at whichever the robot reached first.
+ */
+export function pickAttachments(site: Site, stationId: string): NodeActionAttachment[] {
+  const at = workAt(site, stationId, "pickup");
+  if (!at) return [];
+  const { node } = at;
+  return [at.stance]
     .map((stance) => ({ stance, dock: stationDock(site, stance.station)! }))
     .map(({ stance, dock }) => {
       // Drive to the triangle, face its pointing, drive to the trolley,
@@ -131,10 +139,12 @@ export function pickAttachments(site: Site, nodeId: string): NodeActionAttachmen
     });
 }
 
-export function dropAttachments(site: Site, nodeId: string): NodeActionAttachment[] {
-  const node = site.nodes.find((n) => n.id === nodeId);
-  if (!node) return [];
-  return stationsAt(site, nodeId, "dropoff")
+/** Drop work for one station, to ride its entry node (see pickAttachments). */
+export function dropAttachments(site: Site, stationId: string): NodeActionAttachment[] {
+  const at = workAt(site, stationId, "dropoff");
+  if (!at) return [];
+  const { node } = at;
+  return [at.stance]
     .map((stance) => ({
       stance: stanceFor(site, stance.station, "pickup") ?? stance,
       dock: stationDock(site, stance.station)!,

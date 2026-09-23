@@ -80,6 +80,34 @@ describe("stationDock", () => {
   });
 });
 
+describe("attachments name one station", () => {
+  // Two stations on one entry node, like lounge and window on coalescent.
+  const shared: Site = {
+    name: "shared-entry",
+    nodes: [{ id: "n", x: 0, y: 0 }],
+    links: [],
+    locations: [
+      { id: "left", entry: "n", pickPose: { x: -1, y: 1 }, dropPose: { x: -2, y: 1 } },
+      { id: "right", entry: "n", pickPose: { x: 1, y: 1 }, dropPose: { x: 2, y: 1 } },
+    ],
+  } as Site;
+  const stationOf = (a: { actionParameters?: Array<{ key: string; value: unknown }> }) =>
+    a.actionParameters?.find((p) => p.key === "station")?.value;
+
+  test("a pick or drop at a shared entry works the chosen station only", () => {
+    // Built per node, a drop at "right" also dropped at "left": the first
+    // action put the trolley down at the wrong station and the second
+    // HARD-failed with nothing left to drop.
+    expect(pickAttachments(shared, "right").map(stationOf)).toEqual(["right"]);
+    expect(dropAttachments(shared, "left").map(stationOf)).toEqual(["left"]);
+  });
+
+  test("a station not posed for the role, or unknown, yields no work", () => {
+    expect(dropAttachments(site, "solo")).toEqual([]);
+    expect(pickAttachments(shared, "nowhere")).toEqual([]);
+  });
+});
+
 describe("trolley pick and drop", () => {
   test("pick drives under the trolley; drop sets it down and exits clear", async () => {
     const world = new TrolleyWorld();
@@ -105,7 +133,7 @@ describe("trolley pick and drop", () => {
         { manufacturer: maker, serialNumber: "t1" },
         [
           { nodeId: "a", x: 0, y: 0 },
-          { nodeId: "b", x: 4, y: 0, actions: pickAttachments(site, "b") },
+          { nodeId: "b", x: 4, y: 0, actions: pickAttachments(site, "bay") },
           { nodeId: "c", x: 8, y: 0 },
         ],
       );
@@ -145,7 +173,7 @@ describe("trolley pick and drop", () => {
         [
           { nodeId: "c", x: 8, y: 0 },
           { nodeId: "b", x: 4, y: 0 },
-          { nodeId: "a", x: 0, y: 0, actions: dropAttachments(site, "a") },
+          { nodeId: "a", x: 0, y: 0, actions: dropAttachments(site, "depot") },
         ],
       );
 
@@ -184,7 +212,7 @@ describe("trolley pick and drop", () => {
           { manufacturer: maker, serialNumber: "t2" },
           [
             { nodeId: "a", x: 0, y: 0 },
-            { nodeId: "b", x: 4, y: 0, actions: pickAttachments(site, "b") },
+            { nodeId: "b", x: 4, y: 0, actions: pickAttachments(site, "bay") },
           ],
         ),
       ).rejects.toThrow(/no trolley/);
